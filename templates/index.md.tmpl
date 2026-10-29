@@ -1,0 +1,35 @@
+---
+page_title: "Hibira Provider"
+description: |-
+  Manage Hibira realtime apps, webhooks and push notification credentials as code.
+---
+
+# Hibira Provider
+
+[Hibira](https://hibira.io) is a hosted, Pusher-compatible realtime WebSocket service. This provider manages its apps, their webhooks and their push notification (Beams-compatible) credentials, so each environment's realtime setup lives in Git with the rest of your infrastructure, and app keys and secrets flow straight into the other resources that need them.
+
+## Authentication
+
+In the Hibira portal, open [AI agents](https://hibira.io/portal/agents) and create a personal access token with **read and write** access (a read-only token can only use the data sources). Set it as `HIBIRA_API_TOKEN`, or pass it to `api_token` from a variable; don't commit it.
+
+A token limited to one app can manage that app's webhooks and push settings, but can't create apps.
+
+## Example Usage
+
+{{ tffile "examples/provider/provider.tf" }}
+
+```terraform
+resource "hibira_app" "chat" {
+  name            = "chat-prod"
+  client_events   = true
+  allowed_origins = ["https://example.com"]
+}
+
+resource "hibira_webhook" "presence" {
+  app_id = hibira_app.chat.id
+  url    = "https://example.com/hooks/hibira"
+  events = ["member_added", "member_removed"]
+}
+```
+
+{{ .SchemaMarkdown | trimspace }}

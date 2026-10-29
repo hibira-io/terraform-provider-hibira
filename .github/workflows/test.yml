@@ -1,0 +1,56 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+  docs:
+    # docs/ is generated from the schema, examples/ and templates/.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive examples
+      - run: go generate ./...
+      - run: git diff --exit-code docs || (echo "docs are stale: run go generate ./..."; exit 1)
+  acceptance:
+    # Runs against a real Hibira account when the HIBIRA_API_TOKEN secret is
+    # set (creates and deletes apps named tf-acc*).
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Acceptance tests
+        env:
+          HIBIRA_API_TOKEN: ${{ secrets.HIBIRA_API_TOKEN }}
+          HIBIRA_ENDPOINT: ${{ vars.HIBIRA_ENDPOINT }}
+        run: |
+          if [ -z "$HIBIRA_API_TOKEN" ]; then echo "HIBIRA_API_TOKEN not set: skipping"; exit 0; fi
+          TF_ACC=1 go test ./internal/provider/ -v -run TestAcc -timeout 20m
