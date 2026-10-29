@@ -14,7 +14,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - name: gofmt
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
       - run: go build ./...
       - run: go test ./...
@@ -32,7 +34,9 @@ jobs:
           terraform_wrapper: false
       - run: terraform fmt -check -recursive examples
       - run: go generate ./...
-      - run: git diff --exit-code docs || (echo "docs are stale: run go generate ./..."; exit 1)
+      - name: Check docs are up to date
+        run: |
+          git diff --exit-code docs || { echo "docs are stale, run go generate ./..."; exit 1; }
   acceptance:
     # Runs against a real Hibira account when the HIBIRA_API_TOKEN secret is
     # set (creates and deletes apps named tf-acc*).
