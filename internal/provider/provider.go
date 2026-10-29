@@ -39,7 +39,7 @@ func (p *hibiraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 		MarkdownDescription: "Manage [Hibira](https://hibira.io) apps, webhooks and push notification credentials.",
 		Attributes: map[string]schema.Attribute{
 			"api_token": schema.StringAttribute{
-				MarkdownDescription: "A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's AI agents page. " +
+				MarkdownDescription: "A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's API tokens page. " +
 					"Can also be set with the `HIBIRA_API_TOKEN` environment variable.",
 				Optional:  true,
 				Sensitive: true,

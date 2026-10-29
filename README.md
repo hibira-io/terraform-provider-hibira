@@ -31,7 +31,7 @@ output "app_key" {
 }
 ```
 
-Make the token on the portal's [AI agents](https://hibira.io/portal/agents) page: a personal access token with read and write access.
+Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access.
 
 | | |
 |---|---|

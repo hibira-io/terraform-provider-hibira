@@ -106,7 +106,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 			e.Message = http.StatusText(resp.StatusCode)
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			e.Message += ": check the provider's api_token (a Hibira API token, made on the portal's AI agents page)"
+			e.Message += ": check the provider's api_token (a Hibira API token, made on the portal's API tokens page)"
 		}
 		return e
 	}

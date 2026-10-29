@@ -10,7 +10,7 @@ description: |-
 
 ## Authentication
 
-In the Hibira portal, open [AI agents](https://hibira.io/portal/agents) and create a personal access token with **read and write** access (a read-only token can only use the data sources). Set it as `HIBIRA_API_TOKEN`, or pass it to `api_token` from a variable; don't commit it.
+In the Hibira portal, open [API tokens](https://hibira.io/portal/api-tokens) and create a personal access token with **read and write** access (a read-only token can only use the data sources). Set it as `HIBIRA_API_TOKEN`, or pass it to `api_token` from a variable; don't commit it.
 
 A token limited to one app can manage that app's webhooks and push settings, but can't create apps.
 
@@ -50,5 +50,5 @@ resource "hibira_webhook" "presence" {
 
 ### Optional
 
-- `api_token` (String, Sensitive) A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's AI agents page. Can also be set with the `HIBIRA_API_TOKEN` environment variable.
+- `api_token` (String, Sensitive) A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's API tokens page. Can also be set with the `HIBIRA_API_TOKEN` environment variable.
 - `endpoint` (String) The Hibira site URL. Defaults to `https://hibira.io`, or the `HIBIRA_ENDPOINT` environment variable.
