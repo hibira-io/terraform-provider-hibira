@@ -1,0 +1,6 @@
+/terraform-provider-hibira
+/dist/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
