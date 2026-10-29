@@ -28,12 +28,25 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "version must look like v0.1.0"; exit 1; }
-          git tag "$VERSION"
-          git push origin "$VERSION"
+          # A re-run after a failed release finds the tag already there.
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "$VERSION is already tagged"
+            git checkout -q "$VERSION"
+          else
+            git tag "$VERSION"
+            git push origin "$VERSION"
+          fi
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+      - name: Check the GPG secrets
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          [ -n "$GPG_PRIVATE_KEY" ] || { echo "::error::The GPG_PRIVATE_KEY secret is empty or not shared with this repository"; exit 1; }
+          [ -n "$GPG_PASSPHRASE" ] || { echo "::error::The GPG_PASSPHRASE secret is empty or not shared with this repository"; exit 1; }
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v6
