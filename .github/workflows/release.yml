@@ -3,7 +3,7 @@
 # release by hand on GitHub: the Registry reads it as soon as it is
 # published, before goreleaser has uploaded the files.
 # Needs the repository secrets GPG_PRIVATE_KEY (ASCII-armored) and
-# PASSPHRASE; the matching public key must be added to the Registry.
+# GPG_PASSPHRASE (repository or organization secrets); the matching public key must be added to the Registry.
 name: release
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
         uses: crazy-max/ghaction-import-gpg@v6
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.PASSPHRASE }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: '~> v2'
