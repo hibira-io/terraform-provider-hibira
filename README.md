@@ -1,5 +1,7 @@
 # Terraform provider for Hibira
 
+![Terraform provider for Hibira](.github/cover.jpg)
+
 Manage [Hibira](https://hibira.io) apps, webhooks and push notification credentials with Terraform. Hibira is a hosted, Pusher-compatible realtime WebSocket service.
 
 ```hcl
