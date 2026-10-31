@@ -1,4 +1,8 @@
-## 0.1.0 (unreleased)
+## 0.1.1
+
+- README: cover image and screenshots.
+
+## 0.1.0
 
 First release.
 
