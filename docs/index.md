@@ -14,10 +14,6 @@ In the Hibira portal, open [API tokens](https://hibira.io/portal/api-tokens) and
 
 A token limited to one app can manage that app's webhooks and push settings, but can't create apps.
 
-### Operators
-
-Hibira's own operators can also manage customer accounts (`hibira_account`, `data.hibira_account`, `data.hibira_console_apps`) with an operations console API token (`hbc_...`, set as `console_token` or `HIBIRA_CONSOLE_TOKEN`) and the Cloudflare Access service token in front of the console (`cf_access_client_id` and `cf_access_client_secret`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`). A console token never sees or sets secrets. The provider can hold both tokens at once; each resource uses the one it needs.
-
 ## Example Usage
 
 ```terraform
@@ -55,7 +51,4 @@ resource "hibira_webhook" "presence" {
 ### Optional
 
 - `api_token` (String, Sensitive) A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's API tokens page. Can also be set with the `HIBIRA_API_TOKEN` environment variable.
-- `cf_access_client_id` (String) The ID of the Cloudflare Access service token the console sits behind. Can also be set with the `CF_ACCESS_CLIENT_ID` environment variable.
-- `cf_access_client_secret` (String, Sensitive) The secret of that Cloudflare Access service token. Can also be set with the `CF_ACCESS_CLIENT_SECRET` environment variable.
-- `console_token` (String, Sensitive) An operations console API token (`hbc_...`), for the operator resources (`hibira_account`, `data.hibira_account`, `data.hibira_console_apps`). Made in the operations console under API tokens. Can also be set with the `HIBIRA_CONSOLE_TOKEN` environment variable.
 - `endpoint` (String) The Hibira site URL. Defaults to `https://hibira.io`, or the `HIBIRA_ENDPOINT` environment variable.

@@ -25,11 +25,6 @@ type Client struct {
 	token     string
 	userAgent string
 	http      *http.Client
-	// base is the API's path under endpoint; headers are sent with every
-	// request; unauthorized is added to a 401's message.
-	base         string
-	headers      map[string]string
-	unauthorized string
 }
 
 // New returns a client for endpoint (DefaultEndpoint when empty).
@@ -38,8 +33,7 @@ func New(endpoint, token, userAgent string) *Client {
 		endpoint = DefaultEndpoint
 	}
 	return &Client{endpoint: strings.TrimRight(endpoint, "/"), token: token, userAgent: userAgent,
-		http: &http.Client{Timeout: 30 * time.Second}, base: "/api/v1",
-		unauthorized: "check the provider's api_token (a Hibira API token, made on the portal's API tokens page)"}
+		http: &http.Client{Timeout: 30 * time.Second}}
 }
 
 // Error is an error answer from the API.
@@ -78,7 +72,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+c.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+"/api/v1"+path, body)
 	if err != nil {
 		return err
 	}
@@ -91,9 +85,6 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)
 	}
-	for k, v := range c.headers {
-		req.Header.Set(k, v)
-	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -102,11 +93,6 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return err
-	}
-	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
-		// Only Cloudflare Access redirects (to its sign-in page).
-		return &Error{Status: resp.StatusCode, Message: "redirected to " + resp.Header.Get("Location") +
-			": the console is behind Cloudflare Access; check cf_access_client_id and cf_access_client_secret"}
 	}
 	if resp.StatusCode >= 400 {
 		e := &Error{Status: resp.StatusCode}
@@ -120,7 +106,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 			e.Message = http.StatusText(resp.StatusCode)
 		}
 		if resp.StatusCode == http.StatusUnauthorized {
-			e.Message += ": " + c.unauthorized
+			e.Message += ": check the provider's api_token (a Hibira API token, made on the portal's API tokens page)"
 		}
 		return e
 	}
