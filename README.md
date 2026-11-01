@@ -33,7 +33,7 @@ output "app_key" {
 }
 ```
 
-Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access.
+Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access. Operations console tokens (`hbc_...`) don't work here: the provider calls the customer API, and the console's tokens only reach the console.
 
 | | |
 |---|---|

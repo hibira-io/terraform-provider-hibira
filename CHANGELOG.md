@@ -1,3 +1,7 @@
+## Unreleased
+
+- The provider now stops with a clear error when given an operations console token (`hbc_...`) instead of a portal API token.
+
 ## 0.1.1
 
 - README: cover image and screenshots.
