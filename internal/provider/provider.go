@@ -4,6 +4,7 @@ package provider
 import (
 	"context"
 	"os"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -19,6 +20,10 @@ import (
 func New(version string) func() provider.Provider {
 	return func() provider.Provider { return &hibiraProvider{version: version} }
 }
+
+// consoleTokenPrefix starts an operations console token, which the
+// customer API the provider calls does not accept.
+const consoleTokenPrefix = "hbc_"
 
 type hibiraProvider struct {
 	version string
@@ -75,6 +80,12 @@ func (p *hibiraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		resp.Diagnostics.AddAttributeError(path.Root("api_token"), "Missing Hibira API token",
 			"Set api_token in the provider block or the HIBIRA_API_TOKEN environment variable. "+
 				"Make a token with read and write access in the Hibira portal.")
+		return
+	}
+	if strings.HasPrefix(token, consoleTokenPrefix) {
+		resp.Diagnostics.AddAttributeError(path.Root("api_token"), "Wrong kind of Hibira token",
+			"This is an operations console token (hbc_...). The provider uses the customer API, "+
+				"so make a token with read and write access on the Hibira portal's API tokens page (hkb_pat_...) instead.")
 		return
 	}
 	c := client.New(endpoint, token, "terraform-provider-hibira/"+p.version)
