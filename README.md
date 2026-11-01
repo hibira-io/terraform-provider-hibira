@@ -33,7 +33,7 @@ output "app_key" {
 }
 ```
 
-Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access. Operations console tokens (`hbc_...`) don't work here: the provider calls the customer API, and the console's tokens only reach the console.
+Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access.
 
 | | |
 |---|---|
@@ -41,6 +41,10 @@ Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens)
 | `hibira_webhook` | One webhook endpoint of an app and the events it receives. |
 | `hibira_push` | An app's push notifications (Beams-compatible) with APNs and FCM credentials. |
 | `data.hibira_app`, `data.hibira_apps` | Read existing apps. |
+| `hibira_account` | Operators only: a customer account's custom plan, tags, note and Chat API beta. |
+| `data.hibira_account`, `data.hibira_console_apps` | Operators only: read any account and its apps. |
+
+The operator resources use an operations console token (`console_token` / `HIBIRA_CONSOLE_TOKEN`, `hbc_...`) and the Cloudflare Access service token in front of the console (`CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`). The provider can hold both kinds of token; each resource uses the one it needs.
 
 Full documentation is on the [Terraform Registry](https://registry.terraform.io/providers/hibira-io/hibira/latest/docs) and in [docs/](docs).
 

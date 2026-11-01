@@ -14,6 +14,10 @@ In the Hibira portal, open [API tokens](https://hibira.io/portal/api-tokens) and
 
 A token limited to one app can manage that app's webhooks and push settings, but can't create apps.
 
+### Operators
+
+Hibira's own operators can also manage customer accounts (`hibira_account`, `data.hibira_account`, `data.hibira_console_apps`) with an operations console API token (`hbc_...`, set as `console_token` or `HIBIRA_CONSOLE_TOKEN`) and the Cloudflare Access service token in front of the console (`cf_access_client_id` and `cf_access_client_secret`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`). A console token never sees or sets secrets. The provider can hold both tokens at once; each resource uses the one it needs.
+
 ## Example Usage
 
 {{ tffile "examples/provider/provider.tf" }}

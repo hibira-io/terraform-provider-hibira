@@ -1,6 +1,9 @@
 ## Unreleased
 
-- The provider now stops with a clear error when given an operations console token (`hbc_...`) instead of a portal API token.
+- Operator mode: with an operations console token (`console_token`, `hbc_...`) and the Cloudflare Access service token (`cf_access_client_id`, `cf_access_client_secret`), the provider manages customer accounts:
+  - `hibira_account` resource: an existing account's custom plan, operator note and tags, and Chat API beta. It takes over an account and leaves it as it is when destroyed.
+  - `hibira_account` data source (by ID or email) and `hibira_console_apps` data source (every account's apps, or one account's).
+- A token in the wrong setting (a console token as `api_token`, or a portal token as `console_token`) stops with an error that says where it goes.
 
 ## 0.1.1
 
