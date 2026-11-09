@@ -1,0 +1,1 @@
+terraform import hibira_waiting_room.presale app_123/presale

@@ -354,3 +354,85 @@ func (c *Client) SetFCM(ctx context.Context, appID, serviceAccount string) (*Pus
 	}
 	return &out, nil
 }
+
+// WaitingRoom is a waiting room as the API shows it (with live counters).
+type WaitingRoom struct {
+	Room           string   `json:"room"`
+	Title          string   `json:"title"`
+	Notice         string   `json:"notice"`
+	State          string   `json:"state"`
+	Admitted       int64    `json:"admitted"`
+	Issued         int64    `json:"issued"`
+	Waiting        int64    `json:"waiting"`
+	AdmitPerMinute int64    `json:"admit_per_minute"`
+	StartsAt       string   `json:"starts_at"`
+	Channel        string   `json:"channel"`
+	Burst          int64    `json:"burst"`
+	PassTTLSeconds int64    `json:"pass_ttl_seconds"`
+	ReturnURLs     []string `json:"return_urls"`
+}
+
+// WaitingRoomInput creates or changes a waiting room; nil fields keep
+// their value (StartsAt "" clears the start time).
+type WaitingRoomInput struct {
+	AdmitPerMinute *int64    `json:"admit_per_minute,omitempty"`
+	State          *string   `json:"state,omitempty"`
+	StartsAt       *string   `json:"starts_at,omitempty"`
+	Burst          *int64    `json:"burst,omitempty"`
+	PassTTLSeconds *int64    `json:"pass_ttl_seconds,omitempty"`
+	Title          *string   `json:"title,omitempty"`
+	Notice         *string   `json:"notice,omitempty"`
+	ReturnURLs     *[]string `json:"return_urls,omitempty"`
+}
+
+func roomsPath(appID string) string { return "/apps/" + url.PathEscape(appID) + "/waiting_rooms" }
+
+// WaitingRooms lists an app's waiting rooms.
+func (c *Client) WaitingRooms(ctx context.Context, appID string) ([]WaitingRoom, error) {
+	var out struct {
+		Rooms []WaitingRoom `json:"rooms"`
+	}
+	err := c.do(ctx, http.MethodGet, roomsPath(appID), nil, &out)
+	return out.Rooms, err
+}
+
+// WaitingRoom reads one waiting room; a missing room is a 404 Error.
+func (c *Client) WaitingRoom(ctx context.Context, appID, room string) (*WaitingRoom, error) {
+	rooms, err := c.WaitingRooms(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rooms {
+		if rooms[i].Room == room {
+			return &rooms[i], nil
+		}
+	}
+	return nil, &Error{Status: http.StatusNotFound, Code: "waiting_room_not_found", Message: "no waiting room " + strconv.Quote(room)}
+}
+
+// CreateWaitingRoom creates a room (409 when it exists).
+func (c *Client) CreateWaitingRoom(ctx context.Context, appID, room string, in WaitingRoomInput) (*WaitingRoom, error) {
+	body := struct {
+		ID string `json:"id"`
+		WaitingRoomInput
+	}{room, in}
+	var out WaitingRoom
+	if err := c.do(ctx, http.MethodPost, roomsPath(appID), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateWaitingRoom changes a room.
+func (c *Client) UpdateWaitingRoom(ctx context.Context, appID, room string, in WaitingRoomInput) (*WaitingRoom, error) {
+	var out WaitingRoom
+	if err := c.do(ctx, http.MethodPatch, roomsPath(appID)+"/"+url.PathEscape(room), in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteWaitingRoom removes a room.
+func (c *Client) DeleteWaitingRoom(ctx context.Context, appID, room string) error {
+	return c.do(ctx, http.MethodDelete, roomsPath(appID)+"/"+url.PathEscape(room), nil, nil)
+}

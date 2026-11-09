@@ -1,5 +1,6 @@
 ## Unreleased
 
+- `hibira_waiting_room` resource: a waiting room of an app (rate, state, start time, pass lifetime, title, notice, return URLs); import with `<app_id>/<name>`.
 - The provider now stops with a clear error when given an operations console token (`hbc_...`) instead of a portal API token.
 
 ## 0.1.1
