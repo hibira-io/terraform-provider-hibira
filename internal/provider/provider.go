@@ -94,7 +94,7 @@ func (p *hibiraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 }
 
 func (p *hibiraProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{newAppResource, newWebhookResource, newPushResource, newWaitingRoomResource}
+	return []func() resource.Resource{newAppResource, newWebhookResource, newPushResource, newWaitingRoomResource, newApprovalsWorkspaceResource}
 }
 
 func (p *hibiraProvider) DataSources(context.Context) []func() datasource.DataSource {

@@ -1,5 +1,6 @@
 ## Unreleased
 
+- `hibira_approvals_workspace` resource: a Hibira Approvals workspace with its members, roles and approver groups; import with its `apw_...` ID. Needs a Hibira server with the Approvals workspace API (pusher-server#775).
 - `hibira_waiting_room` resource: a waiting room of an app (rate, state, start time, pass lifetime, title, notice, return URLs); import with `<app_id>/<name>`.
 - The provider now stops with a clear error when given an operations console token (`hbc_...`) instead of a portal API token.
 
