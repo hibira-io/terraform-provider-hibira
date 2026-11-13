@@ -1,0 +1,1 @@
+terraform import hibira_approvals_workspace.ops apw_0123456789abcdef

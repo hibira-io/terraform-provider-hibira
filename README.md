@@ -41,6 +41,7 @@ Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens)
 | `hibira_webhook` | One webhook endpoint of an app and the events it receives. |
 | `hibira_push` | An app's push notifications (Beams-compatible) with APNs and FCM credentials. |
 | `hibira_waiting_room` | A waiting room in front of a ticket drop or launch: rate, state, start time, return URLs. |
+| `hibira_approvals_workspace` | A [Hibira Approvals](https://hibira.io/approvals) workspace: who answers your agents' and workflows' approval requests, their roles and approver groups. |
 | `data.hibira_app`, `data.hibira_apps` | Read existing apps. |
 
 Full documentation is on the [Terraform Registry](https://registry.terraform.io/providers/hibira-io/hibira/latest/docs) and in [docs/](docs).
