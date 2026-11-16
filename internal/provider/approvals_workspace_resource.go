@@ -89,7 +89,7 @@ func (r *approvalsWorkspaceResource) Schema(_ context.Context, _ resource.Schema
 				Validators:          []validator.String{stringvalidator.LengthBetween(1, 60)},
 			},
 			"plan": schema.StringAttribute{
-				MarkdownDescription: "The workspace's plan (`free`, `starter`, `team`, `business`, `enterprise`). Changed on approvals.hibira.io.",
+				MarkdownDescription: "The workspace's plan (`free`, `starter`, `team`, `business`, `enterprise`). Changed in Hibira Approvals.",
 				Computed:            true,
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
@@ -100,13 +100,13 @@ func (r *approvalsWorkspaceResource) Schema(_ context.Context, _ resource.Schema
 			},
 			"members": schema.SetNestedAttribute{
 				MarkdownDescription: "Everyone in the workspace. Include the token owner's email as an `admin`: Terraform would otherwise " +
-					"remove its own access. Unset: members are managed on approvals.hibira.io and only read here. The plan limits how many " +
+					"remove its own access. Unset: members are managed in Hibira Approvals and only read here. The plan limits how many " +
 					"admins and approvers there can be; viewers are free.",
 				Optional: true, Computed: true,
 				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 					"email": schema.StringAttribute{
-						MarkdownDescription: "The person's email, in lowercase. They sign in to approvals.hibira.io with it.",
+						MarkdownDescription: "The person's email, in lowercase. They sign in to Hibira Approvals with it.",
 						Required:            true,
 						Validators:          []validator.String{stringvalidator.RegexMatches(lowerEmail, "must be an email address in lowercase")},
 					},
@@ -119,7 +119,7 @@ func (r *approvalsWorkspaceResource) Schema(_ context.Context, _ resource.Schema
 			},
 			"groups": schema.ListNestedAttribute{
 				MarkdownDescription: "Approver groups: a request sent to a group's `slug` (for example `approvers: [\"dba\"]`) can be answered " +
-					"only by its members. Unset: managed on approvals.hibira.io.",
+					"only by its members. Unset: managed in Hibira Approvals.",
 				Optional: true, Computed: true,
 				PlanModifiers: []planmodifier.List{listplanmodifier.UseStateForUnknown()},
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
@@ -340,7 +340,7 @@ func (r *approvalsWorkspaceResource) Delete(ctx context.Context, req resource.De
 	if errors.As(err, &e) && (e.Status == 404 || e.Status == 405) {
 		resp.Diagnostics.AddWarning("Approvals workspace kept",
 			fmt.Sprintf("Hibira does not delete Approvals workspaces through the API here, so %s (%s) was only removed from the Terraform state. "+
-				"Delete it in its Settings on approvals.hibira.io.", state.Name.ValueString(), state.ID.ValueString()))
+				"Delete it in its Settings in Hibira Approvals.", state.Name.ValueString(), state.ID.ValueString()))
 		return
 	}
 	if err != nil {
@@ -350,7 +350,7 @@ func (r *approvalsWorkspaceResource) Delete(ctx context.Context, req resource.De
 
 func (r *approvalsWorkspaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	if !strings.HasPrefix(req.ID, "apw_") {
-		resp.Diagnostics.AddError("Invalid import ID", "Use the workspace's ID, for example apw_0123456789abcdef (in its Settings on approvals.hibira.io).")
+		resp.Diagnostics.AddError("Invalid import ID", "Use the workspace's ID, for example apw_0123456789abcdef (in its Settings in Hibira Approvals).")
 		return
 	}
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)

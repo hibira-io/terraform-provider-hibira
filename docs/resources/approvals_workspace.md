@@ -43,14 +43,14 @@ output "approvals_app_id" {
 
 ### Optional
 
-- `groups` (Attributes List) Approver groups: a request sent to a group's `slug` (for example `approvers: ["dba"]`) can be answered only by its members. Unset: managed on approvals.hibira.io. (see [below for nested schema](#nestedatt--groups))
-- `members` (Attributes Set) Everyone in the workspace. Include the token owner's email as an `admin`: Terraform would otherwise remove its own access. Unset: members are managed on approvals.hibira.io and only read here. The plan limits how many admins and approvers there can be; viewers are free. (see [below for nested schema](#nestedatt--members))
+- `groups` (Attributes List) Approver groups: a request sent to a group's `slug` (for example `approvers: ["dba"]`) can be answered only by its members. Unset: managed in Hibira Approvals. (see [below for nested schema](#nestedatt--groups))
+- `members` (Attributes Set) Everyone in the workspace. Include the token owner's email as an `admin`: Terraform would otherwise remove its own access. Unset: members are managed in Hibira Approvals and only read here. The plan limits how many admins and approvers there can be; viewers are free. (see [below for nested schema](#nestedatt--members))
 
 ### Read-Only
 
 - `app_id` (String) The workspace's own app, which requests are sent through.
 - `id` (String) The workspace's ID (`apw_...`).
-- `plan` (String) The workspace's plan (`free`, `starter`, `team`, `business`, `enterprise`). Changed on approvals.hibira.io.
+- `plan` (String) The workspace's plan (`free`, `starter`, `team`, `business`, `enterprise`). Changed in Hibira Approvals.
 
 <a id="nestedatt--groups"></a>
 ### Nested Schema for `groups`
@@ -67,7 +67,7 @@ Required:
 
 Required:
 
-- `email` (String) The person's email, in lowercase. They sign in to approvals.hibira.io with it.
+- `email` (String) The person's email, in lowercase. They sign in to Hibira Approvals with it.
 - `role` (String) `admin` (settings, members, keys), `approver` (answers requests) or `viewer` (sees them).
 
 ## Import
