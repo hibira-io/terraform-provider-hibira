@@ -69,8 +69,8 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 		MarkdownDescription: "Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, with one of the " +
 			"workspace's **admin** API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in " +
 			"Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.\n\n" +
-			"Creating this resource makes a new verified-visitor secret and a new single sign-on secret (any made earlier stop " +
-			"working) and adopts or creates the webhook endpoint. Destroying it deletes the webhook endpoint and leaves the " +
+			"Creating this resource makes a new verified-visitor secret and a new single sign-on secret (an earlier verified-visitor " +
+			"secret stops at once, an earlier single sign-on secret after a day) and adopts or creates the webhook endpoint. Destroying it deletes the webhook endpoint and leaves the " +
 			"workspace, its settings and its secrets as they are.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
