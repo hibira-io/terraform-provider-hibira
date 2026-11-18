@@ -1,4 +1,4 @@
-## 0.5.0
+## 0.6.0
 
 Needs a Hibira server with pusher-server#898 (API token delete scope and API tokens on Live Chat).
 
@@ -6,6 +6,10 @@ Needs a Hibira server with pusher-server#898 (API token delete scope and API tok
 - `hibira_approvals_webhook` resource: an Approvals webhook endpoint with its events and signing secret; import with `<workspace_id>/<webhook id>`.
 - Hibira Live Chat with the provider's API token, in a workspace named by `workspace_id`: `hibira_livechat_team` (members by email), `hibira_livechat_business_hours` (days, time zone, closed dates, away message; destroying turns them off), `hibira_livechat_saved_reply` and `hibira_livechat_knowledge_source` (a website the AI assistant answers from).
 - Provider: `livechat_endpoint` (or `HIBIRA_LIVECHAT_ENDPOINT`) for those resources.
+
+## 0.5.0
+
+- `hibira_livechat_workspace`: set `workspace_id` instead of `api_key` to use the provider's `api_token`, so one Hibira API token manages both Realtime and Live Chat. The token needs read, write and delete access, and its account's email must be an owner or admin of the workspace in Live Chat. The resource then also makes the API key the site's server runs on (`server_key`, scope `server_key_scope`, default `admin`), makes a new one on `rotation` or a scope change and revokes the old one, makes it again if it is revoked in Live Chat, and revokes it on destroy. Needs Live Chat with hibira.io token support (pusher-server#898 and #899).
 
 ## 0.4.1
 

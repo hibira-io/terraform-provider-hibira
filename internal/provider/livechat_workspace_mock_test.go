@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -33,10 +34,18 @@ type fakeLiveChat struct {
 	failSSO             bool // refuse the next SSO secret
 	key                 string
 	webhookSecretRotate int
+	// API keys made over /api-keys (Hibira API token only).
+	apiKeys map[string]client.LiveChatAPIKey
+	nextKey int
+	byToken bool // this request came with the Hibira token
 }
+
+// liveChatTestToken is the provider token the fake takes for ws_test.
+const liveChatTestToken = "hkb_pat_livechat"
 
 func newFakeLiveChat(t *testing.T) (*fakeLiveChat, *httptest.Server) {
 	f := &fakeLiveChat{webhooks: map[string]*client.LiveChatWebhook{}, key: "lck_ws_test.0123456789abcdef0123",
+		apiKeys:  map[string]client.LiveChatAPIKey{},
 		settings: client.LiveChatSettings{Origins: []string{}, EmbedOrigins: []string{}}}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
@@ -46,18 +55,56 @@ func newFakeLiveChat(t *testing.T) (*fakeLiveChat, *httptest.Server) {
 func (f *fakeLiveChat) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if r.Header.Get("Authorization") != "Bearer "+f.key {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"invalid API key"}`))
-		return
-	}
 	fail := func(status int, code string) {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "code": code})
 	}
+	auth := r.Header.Get("Authorization")
+	f.byToken = auth == "Bearer "+liveChatTestToken
+	switch {
+	case f.byToken && r.Header.Get(client.WorkspaceHeader) != "ws_test":
+		fail(http.StatusNotFound, "workspace_not_found")
+		return
+	case f.byToken:
+	case auth != "Bearer "+f.key:
+		_, hasKey := f.apiKeys[strings.TrimPrefix(auth, "Bearer ")]
+		if !hasKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid API key"}`))
+			return
+		}
+	}
 	ok := func(v any) { _ = json.NewEncoder(w).Encode(v) }
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
 	switch {
+	case strings.HasPrefix(path, "/api-keys") && !f.byToken:
+		fail(http.StatusForbidden, "portal_token_required")
+	case r.Method == "GET" && path == "/api-keys":
+		out := []client.LiveChatAPIKey{}
+		for _, k := range f.apiKeys {
+			k.Key = ""
+			out = append(out, k)
+		}
+		ok(map[string]any{"data": out})
+	case r.Method == "POST" && path == "/api-keys":
+		var in struct{ Name, Scope string }
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		f.nextKey++
+		k := client.LiveChatAPIKey{ID: fmt.Sprintf("key_%d", f.nextKey), Name: in.Name, Scope: in.Scope,
+			Key: fmt.Sprintf("lck_ws_test.server%d", f.nextKey)}
+		f.apiKeys[k.Key] = k
+		w.WriteHeader(http.StatusCreated)
+		ok(k)
+	case r.Method == "DELETE" && strings.HasPrefix(path, "/api-keys/"):
+		id := strings.TrimPrefix(path, "/api-keys/")
+		for secret, k := range f.apiKeys {
+			if k.ID == id {
+				delete(f.apiKeys, secret)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		fail(404, "not_found")
 	case r.Method == "GET" && path == "/workspace":
 		ok(client.LiveChatWorkspace{ID: "ws_test", Name: "Test", Plan: "team"})
 	case path == "/settings" && r.Method == "GET":
@@ -348,18 +395,22 @@ func TestLiveChatWorkspaceMockSSOFails(t *testing.T) {
 func TestLiveChatWorkspaceValidation(t *testing.T) {
 	f, srv := newFakeLiveChat(t)
 	bad := map[string]string{
-		"trailing slash": liveChatMockConfig(srv.URL, f.key, "1", `"https://shop.example.com/"`),
-		"uppercase":      liveChatMockConfig(srv.URL, f.key, "1", `"https://Shop.example.com"`),
-		"http":           liveChatMockConfig(srv.URL, f.key, "1", `"http://shop.example.com"`),
-		"webhook http":   strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), "https://shop.example.com/hook", "http://shop.example.com/hook", 1),
-		"webhook local":  strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), "https://shop.example.com/hook", "https://hooks.local/x", 1),
-		"no events":      strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), `webhook_url`, "webhook_events = []\n  webhook_url", 1),
+		"trailing slash":    liveChatMockConfig(srv.URL, f.key, "1", `"https://shop.example.com/"`),
+		"uppercase":         liveChatMockConfig(srv.URL, f.key, "1", `"https://Shop.example.com"`),
+		"http":              liveChatMockConfig(srv.URL, f.key, "1", `"http://shop.example.com"`),
+		"webhook http":      strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), "https://shop.example.com/hook", "http://shop.example.com/hook", 1),
+		"webhook local":     strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), "https://shop.example.com/hook", "https://hooks.local/x", 1),
+		"no events":         strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), `webhook_url`, "webhook_events = []\n  webhook_url", 1),
+		"key and workspace": strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), `webhook_url`, "workspace_id = \"ws_test\"\n  webhook_url", 1),
+		"neither":           strings.Replace(liveChatMockConfig(srv.URL, f.key, "1", `"https://a.example"`), `api_key       = "`+f.key+`"`, "", 1),
+		"bad workspace id":  strings.Replace(liveChatTokenConfig(srv.URL, "1", "admin"), `"ws_test"`, `"WS_Test"`, 1),
+		"bad scope":         liveChatTokenConfig(srv.URL, "1", "owner"),
 	}
 	for name, cfg := range bad {
 		t.Run(name, func(t *testing.T) {
 			resource.UnitTest(t, resource.TestCase{
 				ProtoV6ProviderFactories: testProviders,
-				Steps:                    []resource.TestStep{{Config: cfg, PlanOnly: true, ExpectError: regexp.MustCompile(`(?i)invalid|must`)}},
+				Steps:                    []resource.TestStep{{Config: cfg, PlanOnly: true, ExpectError: regexp.MustCompile(`(?i)invalid|must|exactly one|no attribute`)}},
 			})
 		})
 	}
@@ -485,4 +536,113 @@ func TestAPIKeyErrorHidesKey(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("good key refused: %v", resp.Diagnostics)
 	}
+}
+
+// keyIDs is the fake's API key IDs and scopes, sorted.
+func (f *fakeLiveChat) keyIDs() string {
+	var l []string
+	for _, k := range f.apiKeys {
+		l = append(l, k.ID+":"+k.Scope)
+	}
+	slices.Sort(l)
+	return strings.Join(l, ",")
+}
+
+func liveChatTokenConfig(endpoint, rotation, scope string) string {
+	return fmt.Sprintf(`
+provider "hibira" {
+  api_token = %q
+}
+
+resource "hibira_livechat_workspace" "test" {
+  workspace_id     = "ws_test"
+  endpoint         = %q
+  origins          = ["https://shop.example.com"]
+  embed_origins    = ["https://admin.example.com"]
+  sso_only         = true
+  rotation         = %q
+  server_key_scope = %q
+  webhook_url      = "https://shop.example.com/hook"
+}
+`, liveChatTestToken, endpoint, rotation, scope)
+}
+
+func keysAre(want string) func(*fakeLiveChat) error {
+	return func(f *fakeLiveChat) error {
+		if got := f.keyIDs(); got != want {
+			return fmt.Errorf("api keys %q, want %q", got, want)
+		}
+		return nil
+	}
+}
+
+// With workspace_id the provider's token sets the workspace up and makes
+// the server's key, a new one on rotation, scope change or revocation.
+func TestLiveChatWorkspaceMockToken(t *testing.T) {
+	f, srv := newFakeLiveChat(t)
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{
+				Config: liveChatTokenConfig(srv.URL, "1", "admin"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "id", "ws_test"),
+					resource.TestCheckResourceAttr(lcRes, "identity_secret", "lcid_1"),
+					resource.TestCheckResourceAttr(lcRes, "sso_secret", "lcsso_1"),
+					resource.TestCheckResourceAttr(lcRes, "webhook_id", "wh_1"),
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					resource.TestCheckResourceAttr(lcRes, "server_key", "lck_ws_test.server1"),
+					f.check(keysAre("key_1:admin")),
+					f.check(counts(1, 1)),
+				),
+			},
+			{
+				// Rotation makes the secrets and the key again; the old key goes.
+				Config: liveChatTokenConfig(srv.URL, "2", "admin"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "identity_secret", "lcid_2"),
+					resource.TestCheckResourceAttr(lcRes, "server_key", "lck_ws_test.server2"),
+					f.check(keysAre("key_2:admin")),
+					f.check(counts(2, 2)),
+				),
+			},
+			{
+				// Revoked in Live Chat: made again, and nothing else.
+				PreConfig: f.with(func(f *fakeLiveChat) { delete(f.apiKeys, "lck_ws_test.server2") }),
+				Config:    liveChatTokenConfig(srv.URL, "2", "admin"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_3"),
+					f.check(keysAre("key_3:admin")),
+					f.check(counts(2, 2)),
+				),
+			},
+			{
+				// A new scope is a new key.
+				Config: liveChatTokenConfig(srv.URL, "2", "write"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_4"),
+					f.check(keysAre("key_4:write")),
+					f.check(counts(2, 2)),
+				),
+			},
+		},
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.webhooks) != 0 || len(f.apiKeys) != 0 {
+		t.Fatalf("destroy left webhooks %v, keys %v", f.webhooks, f.keyIDs())
+	}
+}
+
+// A workspace the token's person doesn't manage is a clear error.
+func TestLiveChatWorkspaceMockTokenNotAdmin(t *testing.T) {
+	_, srv := newFakeLiveChat(t)
+	cfg := strings.Replace(liveChatTokenConfig(srv.URL, "1", "admin"), `"ws_test"`, `"ws_other"`, 1)
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{{
+			Config:      cfg,
+			ExpectError: regexp.MustCompile(`workspace_not_found`),
+		}},
+	})
 }

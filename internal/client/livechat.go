@@ -16,22 +16,28 @@ import (
 const DefaultLiveChatEndpoint = "https://chat.hibira.io"
 
 // LiveChat calls the Hibira Live Chat REST API with a workspace API key
-// (lck_<workspace>.<secret>, admin scope). It is separate from Client: Live
-// Chat keys belong to one workspace, not to a Hibira account.
+// (lck_<workspace>.<secret>, admin scope), or with the provider's Hibira
+// API token for a workspace named in the Hibira-Workspace header
+// (Client.LiveChat), which the token's person must manage.
 type LiveChat struct {
 	endpoint  string
 	key       string
+	workspace string // set when key is a Hibira API token
 	userAgent string
 	http      *http.Client
-	// workspace is sent as the Hibira-Workspace header when key is a
-	// hibira.io API token (hkb_...), which can reach several workspaces.
-	workspace string
-	// token is true when key is a hibira.io API token, not a workspace key.
-	token bool
 }
 
-// WorkspaceHeader names the workspace a hibira.io API token works in.
+// WorkspaceHeader names the workspace a Hibira API token acts on.
 const WorkspaceHeader = "Hibira-Workspace"
+
+// LiveChat returns a Live Chat client that uses this client's Hibira API
+// token on workspace workspaceID (DefaultLiveChatEndpoint when endpoint is
+// empty).
+func (c *Client) LiveChat(endpoint, workspaceID string) *LiveChat {
+	lc := NewLiveChat(endpoint, c.token, c.userAgent)
+	lc.workspace = workspaceID
+	return lc
+}
 
 // NewLiveChat returns a Live Chat client (DefaultLiveChatEndpoint when
 // endpoint is empty).
@@ -60,10 +66,10 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.key)
-	req.Header.Set("Accept", "application/json")
 	if c.workspace != "" {
 		req.Header.Set(WorkspaceHeader, c.workspace)
 	}
+	req.Header.Set("Accept", "application/json")
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -91,14 +97,18 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 			e.Message = http.StatusText(resp.StatusCode)
 		}
 		switch {
-		case resp.StatusCode == http.StatusUnauthorized && c.token:
-			e.Message += ": check the provider's api_token, or set api_key to a Live Chat admin API key"
-		case e.Code == "workspace_required":
-			e.Message += ": set workspace_id"
+		case resp.StatusCode == http.StatusUnauthorized && c.workspace != "":
+			e.Message += ": check the provider's api_token (a Hibira API token, made on the portal's API tokens page)"
 		case resp.StatusCode == http.StatusUnauthorized:
 			e.Message += ": check api_key (a Live Chat API key, made in Live Chat's Settings › API & webhooks)"
-		case e.Code == "admin_key_required" && c.token:
-			e.Message += ": the API token needs write access and its owner must be an owner or admin of the workspace"
+		case e.Code == "workspace_not_found":
+			e.Message += " (workspace " + c.workspace + "): the token's account email must be an owner or admin there with the invite accepted (only the owner when single sign-on only or SCIM is on)"
+		case e.Code == "delete_scope_required":
+			e.Message += ": give the provider's api_token delete access (secrets are rotated and keys revoked)"
+		case e.Code == "admin_key_required" && c.workspace != "":
+			e.Message += ": the provider's api_token needs read and write access"
+		case e.Code == "workspace_required":
+			e.Message += ": set workspace_id"
 		case e.Code == "admin_key_required":
 			e.Message += ": the API key needs the admin scope"
 		}
@@ -238,6 +248,41 @@ func (c *LiveChat) RotateWebhookSecret(ctx context.Context, id string) (string, 
 // DeleteWebhook removes an endpoint.
 func (c *LiveChat) DeleteWebhook(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, liveChatWebhookPath(id), nil, nil)
+}
+
+// LiveChatAPIKey is one of the workspace's API keys. Key (the secret) is
+// set only when it is made.
+type LiveChatAPIKey struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Scope string `json:"scope"`
+	Hint  string `json:"hint"`
+	Key   string `json:"key,omitempty"`
+}
+
+// APIKeys lists the workspace's API keys, without their secrets (Hibira
+// API token only).
+func (c *LiveChat) APIKeys(ctx context.Context) ([]LiveChatAPIKey, error) {
+	var out struct {
+		Data []LiveChatAPIKey `json:"data"`
+	}
+	err := c.do(ctx, http.MethodGet, "/api-keys", nil, &out)
+	return out.Data, err
+}
+
+// CreateAPIKey makes an API key; the answer carries its secret, once
+// (Hibira API token only).
+func (c *LiveChat) CreateAPIKey(ctx context.Context, name, scope string) (*LiveChatAPIKey, error) {
+	var out LiveChatAPIKey
+	if err := c.do(ctx, http.MethodPost, "/api-keys", map[string]string{"name": name, "scope": scope}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RevokeAPIKey deletes an API key at once (Hibira API token only).
+func (c *LiveChat) RevokeAPIKey(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/api-keys/"+url.PathEscape(id), nil, nil)
 }
 
 // String keeps the key out of logs and error dumps.

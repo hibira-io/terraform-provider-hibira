@@ -39,9 +39,7 @@ func (c *Client) WithLiveChat(endpoint string) *Client {
 // workspace (the token owner's only workspace when empty). Live Chat
 // gives an owner's or admin's write token an admin key's access.
 func (c *Client) LiveChatFor(workspace string) *LiveChat {
-	lc := NewLiveChat(c.liveChat, c.token, c.userAgent)
-	lc.workspace, lc.token = workspace, true
-	return lc
+	return c.LiveChat(c.liveChat, workspace)
 }
 
 // New returns a client for endpoint (DefaultEndpoint when empty).
@@ -67,10 +65,12 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("hibira: %s (HTTP %d)", e.Message, e.Status)
 }
 
-// IsNotFound reports whether err is a 404.
+// IsNotFound reports whether err is a 404 for the thing asked about. Live
+// Chat's workspace_not_found (the token can't reach the workspace) is not
+// that: the thing may well still be there.
 func IsNotFound(err error) bool {
 	var e *Error
-	return errors.As(err, &e) && e.Status == http.StatusNotFound
+	return errors.As(err, &e) && e.Status == http.StatusNotFound && e.Code != "workspace_not_found"
 }
 
 // IsConflict reports whether err is a version conflict (the app changed

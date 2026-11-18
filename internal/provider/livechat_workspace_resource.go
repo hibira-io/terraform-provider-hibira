@@ -8,11 +8,14 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
@@ -27,10 +30,17 @@ import (
 )
 
 var (
-	_ resource.Resource               = (*liveChatWorkspaceResource)(nil)
-	_ resource.ResourceWithConfigure  = (*liveChatWorkspaceResource)(nil)
-	_ resource.ResourceWithModifyPlan = (*liveChatWorkspaceResource)(nil)
+	_ resource.Resource                     = (*liveChatWorkspaceResource)(nil)
+	_ resource.ResourceWithConfigure        = (*liveChatWorkspaceResource)(nil)
+	_ resource.ResourceWithModifyPlan       = (*liveChatWorkspaceResource)(nil)
+	_ resource.ResourceWithConfigValidators = (*liveChatWorkspaceResource)(nil)
 )
+
+// liveChatKeyScopes are the scopes a Live Chat API key can have.
+var liveChatKeyScopes = []string{"read", "write", "admin"}
+
+// serverKeyName names the API key the resource makes for the site's server.
+const serverKeyName = "terraform: server"
 
 // liveChatWebhookEvents are the event types Live Chat sends.
 var liveChatWebhookEvents = []string{"conversation.created", "conversation.assigned", "conversation.closed",
@@ -38,6 +48,8 @@ var liveChatWebhookEvents = []string{"conversation.created", "conversation.assig
 
 var (
 	liveChatKey = regexp.MustCompile(`^lck_ws_[A-Za-z0-9_-]{4,40}\.[A-Za-z0-9_-]{16,200}$`)
+	// A workspace ID as Live Chat makes them (ValidWorkspaceID).
+	liveChatWorkspaceID = regexp.MustCompile(`^ws_[a-z0-9_-]{3,37}$`)
 	// Origins in the form Live Chat stores them (lowercase scheme and host,
 	// no path or trailing slash), so what is planned is what is read back.
 	liveChatOrigin    = regexp.MustCompile(`^(https://[a-z0-9.-]+(:[0-9]{1,5})?|http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?)$`)
@@ -53,14 +65,19 @@ const originHelp = "must be an origin as Live Chat stores it: lowercase, no path
 func newLiveChatWorkspaceResource() resource.Resource { return &liveChatWorkspaceResource{} }
 
 // liveChatWorkspaceResource sets up an existing Hibira Live Chat workspace
-// for a site from one admin API key: the widget's sites, the console
-// origins that may frame the inbox, single sign-on only, the
-// verified-visitor and single sign-on secrets, and one webhook endpoint.
-type liveChatWorkspaceResource struct{ userAgent string }
+// for a site, from one admin API key or from the provider's Hibira API
+// token: the widget's sites, the console origins that may frame the inbox,
+// single sign-on only, the verified-visitor and single sign-on secrets, one
+// webhook endpoint and, with the token, the API key the site's server uses.
+type liveChatWorkspaceResource struct {
+	userAgent string
+	api       *client.Client // the provider's, for workspace_id
+}
 
 type liveChatWorkspaceModel struct {
 	ID             types.String `tfsdk:"id"`
 	APIKey         types.String `tfsdk:"api_key"`
+	WorkspaceID    types.String `tfsdk:"workspace_id"`
 	Endpoint       types.String `tfsdk:"endpoint"`
 	Name           types.String `tfsdk:"name"`
 	Plan           types.String `tfsdk:"plan"`
@@ -74,7 +91,13 @@ type liveChatWorkspaceModel struct {
 	WebhookEvents  types.Set    `tfsdk:"webhook_events"`
 	WebhookID      types.String `tfsdk:"webhook_id"`
 	WebhookSecret  types.String `tfsdk:"webhook_secret"`
+	ServerKeyScope types.String `tfsdk:"server_key_scope"`
+	ServerKeyID    types.String `tfsdk:"server_key_id"`
+	ServerKey      types.String `tfsdk:"server_key"`
 }
+
+// byToken reports whether m uses the provider's token (workspace_id).
+func (m liveChatWorkspaceModel) byToken() bool { return m.WorkspaceID.ValueString() != "" }
 
 func (r *liveChatWorkspaceResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_livechat_workspace"
@@ -83,9 +106,15 @@ func (r *liveChatWorkspaceResource) Metadata(_ context.Context, req resource.Met
 func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	keep := []planmodifier.String{stringplanmodifier.UseStateForUnknown()}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, with one of the " +
-			"workspace's **admin** API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in " +
-			"Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.\n\n" +
+		MarkdownDescription: "Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, either with " +
+			"the provider's `api_token` and the workspace's `workspace_id`, or with one of the workspace's **admin** API keys " +
+			"(`api_key`, made in Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat " +
+			"first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.\n\n" +
+			"**With `workspace_id`** the provider's token (read, write and delete, since secrets are rotated and keys " +
+			"revoked) acts as its Hibira account's confirmed email, which must be an owner or admin of the workspace in " +
+			"Live Chat (Team) with its invite accepted; in a workspace held to single sign-on or SCIM, the owner. The resource then also makes the API key the site's server runs on (`server_key`), makes a " +
+			"new one when `rotation` or `server_key_scope` changes (revoking the old one), and revokes it on destroy. " +
+			"With `api_key` there is no `server_key`: the site uses its own key.\n\n" +
 			"Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted " +
 			"and gets a new secret), then makes a new verified-visitor secret and a new single sign-on secret, then sets the " +
 			"framing origins and `sso_only`, which need the single sign-on secret. An earlier verified-visitor secret stops " +
@@ -93,12 +122,13 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 			"is a warning, not an error: the resource is saved with what was done and the next apply finishes it, so a typo " +
 			"never makes the secrets again. Destroying the resource deletes the webhook endpoint and leaves the workspace, its " +
 			"settings and its secrets as they are.\n\n" +
-			"**State.** The state holds `api_key` and the three secrets in plain text, like every secret a Terraform provider " +
+			"**State.** The state holds `api_key` or `server_key` and the three secrets in plain text, like every secret a Terraform provider " +
 			"returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and " +
 			"never commit it.\n\n" +
 			"**Outside changes.** Turning visitor verification or single sign-on off in Live Chat makes the next apply create " +
 			"that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When " +
-			"Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in `api_key`.",
+			"Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in `api_key`. " +
+			"A `server_key` revoked in Live Chat is made again on the next apply.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The workspace's ID (`ws_...`).",
@@ -106,12 +136,40 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 				PlanModifiers:       keep,
 			},
 			"api_key": schema.StringAttribute{
-				MarkdownDescription: "An admin API key of the workspace (`lck_ws_....`). A key of another workspace sets that " +
-					"workspace up from the start (new secrets and webhook); the old workspace's webhook endpoint is deleted when " +
-					"the old key still works.",
-				Required:   true,
+				MarkdownDescription: "An admin API key of the workspace (`lck_ws_....`); set this or `workspace_id`. A key of " +
+					"another workspace sets that workspace up from the start (new secrets and webhook); the old workspace's " +
+					"webhook endpoint is deleted when the old key still works.",
+				Optional:   true,
 				Sensitive:  true,
 				Validators: []validator.String{apiKeyValidator{}},
+			},
+			"workspace_id": schema.StringAttribute{
+				MarkdownDescription: "The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the " +
+					"provider's `api_token`; set this or `api_key`. Another workspace is set up from the start, as with a key " +
+					"of another workspace.",
+				Optional:   true,
+				Validators: []validator.String{stringvalidator.RegexMatches(liveChatWorkspaceID, "must be a Live Chat workspace ID (ws_...)")},
+			},
+			"server_key_scope": schema.StringAttribute{
+				MarkdownDescription: "With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default " +
+					"`admin`, which a server that also sets the workspace up needs; `write` is enough to answer chats). Changing " +
+					"it makes a new key and revokes the old one at once, with no overlap: roll the new key out to the server in " +
+					"the same release.",
+				Optional: true, Computed: true,
+				Default:    stringdefault.StaticString("admin"),
+				Validators: []validator.String{stringvalidator.OneOf(liveChatKeyScopes...)},
+			},
+			"server_key_id": schema.StringAttribute{
+				MarkdownDescription: "The ID of `server_key` (`key_...`); empty with `api_key`.",
+				Computed:            true,
+				PlanModifiers:       keep,
+			},
+			"server_key": schema.StringAttribute{
+				MarkdownDescription: "With `workspace_id`: an API key of the workspace (`lck_ws_...`) for the site's server, " +
+					"named \"" + serverKeyName + "\" in Live Chat. A `rotation`, a scope change or a switch to `api_key` revokes the " +
+					"old key at once (no overlap). Empty with `api_key`.",
+				Computed: true, Sensitive: true,
+				PlanModifiers: keep,
 			},
 			"endpoint": schema.StringAttribute{
 				MarkdownDescription: "Live Chat's address (https). Defaults to `" + client.DefaultLiveChatEndpoint + "`. " +
@@ -314,15 +372,33 @@ func publicIP(ip netip.Addr) bool {
 	return true
 }
 
+// ConfigValidators: one way in, api_key or workspace_id.
+func (r *liveChatWorkspaceResource) ConfigValidators(context.Context) []resource.ConfigValidator {
+	return []resource.ConfigValidator{
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("api_key"), path.MatchRoot("workspace_id")),
+	}
+}
+
+// lc is the Live Chat client for m: its api_key, or the provider's token
+// on its workspace_id.
 func (r *liveChatWorkspaceResource) lc(m liveChatWorkspaceModel) *client.LiveChat {
+	if m.byToken() {
+		if r.api == nil {
+			// Not configured (can't happen once the provider is): the
+			// empty token is refused with a clear 401.
+			return client.NewLiveChat(m.Endpoint.ValueString(), "", r.userAgent)
+		}
+		return r.api.LiveChat(m.Endpoint.ValueString(), m.WorkspaceID.ValueString())
+	}
 	return client.NewLiveChat(m.Endpoint.ValueString(), m.APIKey.ValueString(), r.userAgent)
 }
 
-// Configure takes the provider's User-Agent; Live Chat calls use the
-// resource's own api_key, not the provider token.
+// Configure takes the provider's client: its User-Agent always, its token
+// for workspace_id (api_key calls use only the key).
 func (r *liveChatWorkspaceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if c, ok := req.ProviderData.(*client.Client); ok {
 		r.userAgent = c.UserAgent()
+		r.api = c
 	}
 }
 
@@ -502,6 +578,30 @@ func (run *liveChatRun) secrets(identity, sso, create bool) bool {
 	return true
 }
 
+// serverKey makes a new server key when need (with workspace_id), then
+// revokes the one in prev. The new key is stored before the old one is
+// revoked; a revoke that fails is a warning to do it by hand.
+func (run *liveChatRun) serverKey(prev liveChatWorkspaceModel, need bool) bool {
+	p := run.plan
+	if !p.byToken() || !need {
+		return true
+	}
+	k, err := run.lc.CreateAPIKey(run.ctx, serverKeyName, p.ServerKeyScope.ValueString())
+	if err != nil {
+		run.fail("Making the Live Chat server key failed", err)
+		return false
+	}
+	p.ServerKeyID, p.ServerKey = types.StringValue(k.ID), types.StringValue(k.Key)
+	run.soft = true
+	if old := prev.ServerKeyID.ValueString(); old != "" && old != k.ID {
+		if err := run.lc.RevokeAPIKey(run.ctx, old); err != nil && !client.IsNotFound(err) {
+			run.diags.AddWarning("Could not revoke the old Live Chat server key",
+				fmt.Sprintf("Revoke API key %s in Live Chat › Settings › API & webhooks by hand: %v", old, err))
+		}
+	}
+	return true
+}
+
 func (r *liveChatWorkspaceResource) workspace(ctx context.Context, lc *client.LiveChat, m *liveChatWorkspaceModel) error {
 	w, err := lc.Workspace(ctx)
 	if err != nil {
@@ -534,14 +634,34 @@ func (r *liveChatWorkspaceResource) ModifyPlan(ctx context.Context, req resource
 	if !plan.WebhookURL.Equal(state.WebhookURL) || (state.WebhookID.ValueString() == "" && plan.WebhookURL.ValueString() != "") {
 		plan.WebhookID, plan.WebhookSecret = types.StringUnknown(), types.StringUnknown()
 	}
-	if !plan.APIKey.Equal(state.APIKey) {
+	if !plan.APIKey.Equal(state.APIKey) || !plan.WorkspaceID.Equal(state.WorkspaceID) {
 		// The key may belong to another workspace: everything may change.
 		plan.ID, plan.Name, plan.Plan = types.StringUnknown(), types.StringUnknown(), types.StringUnknown()
 		plan.IdentitySecret, plan.SSOSecret = types.StringUnknown(), types.StringUnknown()
 		plan.WebhookID, plan.WebhookSecret = types.StringUnknown(), types.StringUnknown()
+		plan.ServerKeyID, plan.ServerKey = types.StringUnknown(), types.StringUnknown()
+	}
+	switch {
+	case !plan.byToken():
+		plan.ServerKeyID, plan.ServerKey = types.StringValue(""), types.StringValue("")
+	case serverKeyNeeded(ctx, plan, state, req.Private):
+		plan.ServerKeyID, plan.ServerKey = types.StringUnknown(), types.StringUnknown()
 	}
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
+
+// serverKeyNeeded reports whether an update makes a new server key: with
+// workspace_id, when there is none, rotation or the scope changes, a
+// rotation left it pending, or the workspace changes.
+func serverKeyNeeded(ctx context.Context, plan, state liveChatWorkspaceModel, p privateGetter) bool {
+	return plan.byToken() && (state.ServerKeyID.ValueString() == "" || !plan.Rotation.Equal(state.Rotation) ||
+		!plan.ServerKeyScope.Equal(state.ServerKeyScope) || !plan.WorkspaceID.Equal(state.WorkspaceID) ||
+		!plan.APIKey.Equal(state.APIKey) || privateFlag(ctx, p, privateKeyPending))
+}
+
+// privateKeyPending marks (in private state) a server key still to be
+// made after a rotation whose secrets were made but whose key was not.
+const privateKeyPending = "server_key_pending"
 
 // privateSSOPending marks (in private state) an SSO secret still to be
 // made after a rotation that made only the identity secret.
@@ -552,10 +672,14 @@ type privateGetter interface {
 }
 
 func ssoPending(ctx context.Context, p privateGetter) bool {
+	return privateFlag(ctx, p, privateSSOPending)
+}
+
+func privateFlag(ctx context.Context, p privateGetter, key string) bool {
 	if p == nil {
 		return false
 	}
-	b, _ := p.GetKey(ctx, privateSSOPending)
+	b, _ := p.GetKey(ctx, key)
 	return string(b) == "true"
 }
 
@@ -571,8 +695,10 @@ func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.Cre
 		return
 	}
 	empty := liveChatWorkspaceModel{IdentitySecret: types.StringValue(""), SSOSecret: types.StringValue(""),
-		WebhookID: types.StringValue(""), WebhookSecret: types.StringValue("")}
+		WebhookID: types.StringValue(""), WebhookSecret: types.StringValue(""),
+		ServerKeyID: types.StringValue(""), ServerKey: types.StringValue("")}
 	plan.IdentitySecret, plan.SSOSecret = empty.IdentitySecret, empty.SSOSecret
+	plan.ServerKeyID, plan.ServerKey = empty.ServerKeyID, empty.ServerKey
 	run := &liveChatRun{ctx: ctx, lc: lc, plan: &plan, diags: &resp.Diagnostics}
 	// Before any secret exists, a failure is an ordinary error and nothing
 	// is saved (a webhook made here is adopted by URL on the next apply).
@@ -586,6 +712,7 @@ func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.Cre
 	if run.secrets(true, true, true) {
 		run.settings(true)
 	}
+	run.serverKey(empty, true)
 	fillUnknown(&plan)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -593,7 +720,7 @@ func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.Cre
 // fillUnknown gives computed values that a failed step left unknown a
 // known value, so the state can be saved.
 func fillUnknown(m *liveChatWorkspaceModel) {
-	for _, s := range []*types.String{&m.WebhookID, &m.WebhookSecret, &m.IdentitySecret, &m.SSOSecret} {
+	for _, s := range []*types.String{&m.WebhookID, &m.WebhookSecret, &m.IdentitySecret, &m.SSOSecret, &m.ServerKeyID, &m.ServerKey} {
 		if s.IsUnknown() {
 			*s = types.StringValue("")
 		}
@@ -615,14 +742,24 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// State from before workspace_id: the server key fields are new.
+	if state.ServerKeyID.IsNull() {
+		state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
+	}
+	if state.ServerKeyScope.IsNull() {
+		state.ServerKeyScope = types.StringValue("admin")
+	}
 	lc := r.lc(state)
 	if err := r.workspace(ctx, lc, &state); err != nil {
 		var e *client.Error
 		if errors.As(err, &e) && e.Status == http.StatusUnauthorized {
 			// A revoked key: keep the state as it is so a plan with the new
 			// key in api_key can run.
-			resp.Diagnostics.AddWarning("Live Chat refused the API key in state",
-				"The refresh of hibira_livechat_workspace was skipped. If the key was revoked, set the new one in api_key.")
+			detail := "The refresh of hibira_livechat_workspace was skipped. If the key was revoked, set the new one in api_key."
+			if state.byToken() {
+				detail = "The refresh of hibira_livechat_workspace was skipped. Check the provider's api_token."
+			}
+			resp.Diagnostics.AddWarning("Live Chat refused the API key in state", detail)
 			return
 		}
 		resp.Diagnostics.AddError("Reading the Live Chat workspace failed", err.Error())
@@ -669,6 +806,17 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 			}
 		}
 	}
+	if id := state.ServerKeyID.ValueString(); id != "" && state.byToken() {
+		keys, err := lc.APIKeys(ctx)
+		if err != nil {
+			resp.Diagnostics.AddError("Reading Live Chat API keys failed", err.Error())
+			return
+		}
+		if !slices.ContainsFunc(keys, func(k client.LiveChatAPIKey) bool { return k.ID == id }) {
+			// Revoked in Live Chat: the next apply makes one again.
+			state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
+		}
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -687,31 +835,51 @@ func (r *liveChatWorkspaceResource) Update(ctx context.Context, req resource.Upd
 	if plan.ID.ValueString() != state.ID.ValueString() {
 		// A key of another workspace: remove our endpoint from the old one
 		// if its key still works, then set the new one up from the start.
+		old := r.lc(state)
 		if id := state.WebhookID.ValueString(); id != "" {
-			if err := r.lc(state).DeleteWebhook(ctx, id); err != nil && !client.IsNotFound(err) {
+			if err := old.DeleteWebhook(ctx, id); err != nil && !client.IsNotFound(err) {
 				resp.Diagnostics.AddWarning("Could not delete the old workspace's webhook endpoint",
 					fmt.Sprintf("Delete endpoint %s in workspace %s by hand: %v", id, state.ID.ValueString(), err))
 			}
 		}
+		r.revokeServerKey(ctx, state, &resp.Diagnostics, true)
 		state.IdentitySecret, state.SSOSecret = types.StringValue(""), types.StringValue("")
 		state.WebhookID, state.WebhookSecret = types.StringValue(""), types.StringValue("")
+		state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
+	} else if !plan.byToken() && state.byToken() {
+		// Same workspace, now by api_key: the server key is no longer
+		// managed here.
+		r.revokeServerKey(ctx, state, &resp.Diagnostics, true)
+		state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
 	}
 	plan.IdentitySecret, plan.SSOSecret = state.IdentitySecret, state.SSOSecret
 	rotate := !plan.Rotation.Equal(state.Rotation)
 	pending := ssoPending(ctx, req.Private)
 	needID := rotate || state.IdentitySecret.ValueString() == ""
 	needSSO := rotate || pending || state.SSOSecret.ValueString() == ""
+	needKey := serverKeyNeeded(ctx, plan, state, req.Private)
 	// Unknown values the run doesn't reach keep what the state had.
 	plan.WebhookID, plan.WebhookSecret = state.WebhookID, state.WebhookSecret
+	plan.ServerKeyID, plan.ServerKey = state.ServerKeyID, state.ServerKey
+	if !plan.byToken() {
+		plan.ServerKeyID, plan.ServerKey = types.StringValue(""), types.StringValue("")
+	}
 	run := &liveChatRun{ctx: ctx, lc: lc, plan: &plan, diags: &resp.Diagnostics}
-	rotated := false
+	rotated, keyed := false, !needKey
 	if run.settings(false) && run.webhook(state) && run.secrets(needID, needSSO, false) {
 		rotated = true
 		run.settings(true)
+		keyed = run.serverKey(state, needKey)
 	}
 	switch {
+	case rotated && !keyed:
+		// The secrets rotated but the server key didn't: keep the rotation
+		// and make only the key next time.
+		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateSSOPending, nil)...)
+		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateKeyPending, []byte(`true`))...)
 	case rotated:
 		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateSSOPending, nil)...)
+		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateKeyPending, nil)...)
 	case run.identityDone && needSSO:
 		// The identity secret is new but the SSO secret failed: keep the
 		// rotation (making the identity secret again would end the new one
@@ -720,6 +888,11 @@ func (r *liveChatWorkspaceResource) Update(ctx context.Context, req resource.Upd
 	case rotate:
 		// Nothing rotated: keep the old keeper so the next plan asks again.
 		plan.Rotation = state.Rotation
+	}
+	if needKey && !rotated {
+		// No server key was made: keep the old scope so the next plan
+		// asks again.
+		plan.ServerKeyScope = state.ServerKeyScope
 	}
 	fillUnknown(&plan)
 	// Saved even after an error, so secrets made in this run are kept.
@@ -737,4 +910,24 @@ func (r *liveChatWorkspaceResource) Delete(ctx context.Context, req resource.Del
 			resp.Diagnostics.AddError("Deleting the Live Chat webhook failed", err.Error())
 		}
 	}
+	r.revokeServerKey(ctx, state, &resp.Diagnostics, false)
+}
+
+// revokeServerKey revokes the server key in m (workspace_id only); a
+// failure is a warning when soft, else an error.
+func (r *liveChatWorkspaceResource) revokeServerKey(ctx context.Context, m liveChatWorkspaceModel, diags *diag.Diagnostics, soft bool) {
+	id := m.ServerKeyID.ValueString()
+	if id == "" || !m.byToken() {
+		return
+	}
+	err := r.lc(m).RevokeAPIKey(ctx, id)
+	if err == nil || client.IsNotFound(err) {
+		return
+	}
+	if soft {
+		diags.AddWarning("Could not revoke the old Live Chat server key",
+			fmt.Sprintf("Revoke API key %s in workspace %s by hand: %v", id, m.WorkspaceID.ValueString(), err))
+		return
+	}
+	diags.AddError("Revoking the Live Chat server key failed", err.Error())
 }
