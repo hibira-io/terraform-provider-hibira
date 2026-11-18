@@ -30,8 +30,9 @@ type hibiraProvider struct {
 }
 
 type providerModel struct {
-	APIToken types.String `tfsdk:"api_token"`
-	Endpoint types.String `tfsdk:"endpoint"`
+	APIToken         types.String `tfsdk:"api_token"`
+	Endpoint         types.String `tfsdk:"endpoint"`
+	LiveChatEndpoint types.String `tfsdk:"livechat_endpoint"`
 }
 
 func (p *hibiraProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -41,7 +42,7 @@ func (p *hibiraProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *hibiraProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manage [Hibira](https://hibira.io) apps, webhooks and push notification credentials.",
+		MarkdownDescription: "Manage [Hibira](https://hibira.io) apps, webhooks, push notification credentials, waiting rooms, Hibira Approvals and Hibira Live Chat.",
 		Attributes: map[string]schema.Attribute{
 			"api_token": schema.StringAttribute{
 				MarkdownDescription: "A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's API tokens page. " +
@@ -53,6 +54,11 @@ func (p *hibiraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 				MarkdownDescription: "The Hibira site URL. Defaults to `" + client.DefaultEndpoint + "`, or the `HIBIRA_ENDPOINT` environment variable.",
 				Optional:            true,
 			},
+			"livechat_endpoint": schema.StringAttribute{
+				MarkdownDescription: "Hibira Live Chat's address, for the `hibira_livechat_*` resources other than `hibira_livechat_workspace`. " +
+					"Defaults to `" + client.DefaultLiveChatEndpoint + "`, or the `HIBIRA_LIVECHAT_ENDPOINT` environment variable.",
+				Optional: true,
+			},
 		},
 	}
 }
@@ -63,9 +69,9 @@ func (p *hibiraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if cfg.APIToken.IsUnknown() || cfg.Endpoint.IsUnknown() {
+	if cfg.APIToken.IsUnknown() || cfg.Endpoint.IsUnknown() || cfg.LiveChatEndpoint.IsUnknown() {
 		resp.Diagnostics.AddError("Unknown provider configuration",
-			"api_token and endpoint must be known when the provider is configured; they can't depend on resources that aren't created yet.")
+			"api_token, endpoint and livechat_endpoint must be known when the provider is configured; they can't depend on resources that aren't created yet.")
 		return
 	}
 	token := os.Getenv("HIBIRA_API_TOKEN")
@@ -88,13 +94,19 @@ func (p *hibiraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 				"so make a token with read and write access on the Hibira portal's API tokens page (hkb_pat_...) instead.")
 		return
 	}
-	c := client.New(endpoint, token, "terraform-provider-hibira/"+p.version)
+	liveChat := os.Getenv("HIBIRA_LIVECHAT_ENDPOINT")
+	if !cfg.LiveChatEndpoint.IsNull() {
+		liveChat = cfg.LiveChatEndpoint.ValueString()
+	}
+	c := client.New(endpoint, token, "terraform-provider-hibira/"+p.version).WithLiveChat(liveChat)
 	resp.DataSourceData = c
 	resp.ResourceData = c
 }
 
 func (p *hibiraProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{newAppResource, newWebhookResource, newPushResource, newWaitingRoomResource, newApprovalsWorkspaceResource, newLiveChatWorkspaceResource}
+	return []func() resource.Resource{newAppResource, newWebhookResource, newPushResource, newWaitingRoomResource, newApprovalsWorkspaceResource,
+		newApprovalsWebhookResource, newLiveChatWorkspaceResource, newLiveChatTeamResource, newLiveChatBusinessHoursResource,
+		newLiveChatSavedReplyResource, newLiveChatKnowledgeSourceResource}
 }
 
 func (p *hibiraProvider) DataSources(context.Context) []func() datasource.DataSource {

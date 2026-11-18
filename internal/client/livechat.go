@@ -107,6 +107,8 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 			e.Message += ": give the provider's api_token delete access (secrets are rotated and keys revoked)"
 		case e.Code == "admin_key_required" && c.workspace != "":
 			e.Message += ": the provider's api_token needs read and write access"
+		case e.Code == "workspace_required":
+			e.Message += ": set workspace_id"
 		case e.Code == "admin_key_required":
 			e.Message += ": the API key needs the admin scope"
 		}
@@ -285,3 +287,175 @@ func (c *LiveChat) RevokeAPIKey(ctx context.Context, id string) error {
 
 // String keeps the key out of logs and error dumps.
 func (c *LiveChat) String() string { return fmt.Sprintf("LiveChat(%s)", c.endpoint) }
+
+// LiveChatAgent is a person in the workspace.
+type LiveChatAgent struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
+// Agents lists the workspace's agents.
+func (c *LiveChat) Agents(ctx context.Context) ([]LiveChatAgent, error) {
+	var out struct {
+		Data []LiveChatAgent `json:"data"`
+	}
+	err := c.do(ctx, http.MethodGet, "/agents", nil, &out)
+	return out.Data, err
+}
+
+// LiveChatTeam is a team of agents conversations can be sent to.
+type LiveChatTeam struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	AgentIDs []string `json:"agent_ids"`
+}
+
+func teamPath(id string) string { return "/teams/" + url.PathEscape(id) }
+
+// Team returns one team.
+func (c *LiveChat) Team(ctx context.Context, id string) (*LiveChatTeam, error) {
+	var out LiveChatTeam
+	if err := c.do(ctx, http.MethodGet, teamPath(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateTeam adds a team.
+func (c *LiveChat) CreateTeam(ctx context.Context, name string, agentIDs []string) (*LiveChatTeam, error) {
+	var out LiveChatTeam
+	if err := c.do(ctx, http.MethodPost, "/teams", map[string]any{"name": name, "agent_ids": agentIDs}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateTeam changes a team's name and agents.
+func (c *LiveChat) UpdateTeam(ctx context.Context, id, name string, agentIDs []string) (*LiveChatTeam, error) {
+	var out LiveChatTeam
+	if err := c.do(ctx, http.MethodPost, teamPath(id), map[string]any{"name": name, "agent_ids": agentIDs}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteTeam removes a team.
+func (c *LiveChat) DeleteTeam(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, teamPath(id), nil, nil)
+}
+
+// DayHours is one weekday's opening hours (HH:MM, 24:00 for midnight).
+type DayHours struct {
+	Off  bool   `json:"off,omitempty"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// BusinessHours are the workspace's opening hours. Week starts on Sunday.
+type BusinessHours struct {
+	On       bool        `json:"on"`
+	TimeZone string      `json:"time_zone"`
+	Week     [7]DayHours `json:"week"`
+	Closed   []string    `json:"closed"`
+	Away     string      `json:"away,omitempty"`
+}
+
+// Hours returns the business hours.
+func (c *LiveChat) Hours(ctx context.Context) (*BusinessHours, error) {
+	var out BusinessHours
+	if err := c.do(ctx, http.MethodGet, "/hours", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetHours replaces the business hours.
+func (c *LiveChat) SetHours(ctx context.Context, h BusinessHours) (*BusinessHours, error) {
+	var out BusinessHours
+	if err := c.do(ctx, http.MethodPost, "/hours", h, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SavedReply is a canned reply agents insert with /shortcut.
+type SavedReply struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Shortcut string `json:"shortcut,omitempty"`
+	Text     string `json:"text"`
+}
+
+func savedReplyPath(id string) string { return "/saved-replies/" + url.PathEscape(id) }
+
+// SavedReply returns one saved reply.
+func (c *LiveChat) SavedReply(ctx context.Context, id string) (*SavedReply, error) {
+	var out SavedReply
+	if err := c.do(ctx, http.MethodGet, savedReplyPath(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateSavedReply adds a saved reply.
+func (c *LiveChat) CreateSavedReply(ctx context.Context, in SavedReply) (*SavedReply, error) {
+	var out SavedReply
+	body := map[string]string{"title": in.Title, "shortcut": in.Shortcut, "text": in.Text}
+	if err := c.do(ctx, http.MethodPost, "/saved-replies", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateSavedReply changes a saved reply.
+func (c *LiveChat) UpdateSavedReply(ctx context.Context, in SavedReply) (*SavedReply, error) {
+	var out SavedReply
+	body := map[string]string{"title": in.Title, "shortcut": in.Shortcut, "text": in.Text}
+	if err := c.do(ctx, http.MethodPost, savedReplyPath(in.ID), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteSavedReply removes a saved reply.
+func (c *LiveChat) DeleteSavedReply(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, savedReplyPath(id), nil, nil)
+}
+
+// WebSource is a website the AI assistant's knowledge base reads.
+type WebSource struct {
+	ID      string `json:"id"`
+	URL     string `json:"url"`
+	Found   string `json:"found,omitempty"`
+	Pages   int    `json:"pages"`
+	Entries int    `json:"entries"`
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+}
+
+func webSourcePath(id string) string { return "/knowledge/sources/" + url.PathEscape(id) }
+
+// WebSource returns one source.
+func (c *LiveChat) WebSource(ctx context.Context, id string) (*WebSource, error) {
+	var out WebSource
+	if err := c.do(ctx, http.MethodGet, webSourcePath(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AddWebSource adds a website; Live Chat starts reading it.
+func (c *LiveChat) AddWebSource(ctx context.Context, u string) (*WebSource, error) {
+	var out WebSource
+	if err := c.do(ctx, http.MethodPost, "/knowledge/sources", map[string]string{"url": u}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteWebSource removes a website and the entries read from it.
+func (c *LiveChat) DeleteWebSource(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, webSourcePath(id), nil, nil)
+}

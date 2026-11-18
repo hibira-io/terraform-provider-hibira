@@ -3,12 +3,12 @@
 page_title: "hibira_approvals_workspace Resource - hibira"
 subcategory: ""
 description: |-
-  A Hibira Approvals https://hibira.io/approvals workspace: the people who answer approval requests from agents and workflows, their roles and approver groups. The API token acts as its owner's email (which must be verified): a new workspace makes that email its admin, and an existing one can be managed only by its admins. Each workspace has its own app (app_id); tools connect to it with npx -y @hibira-io/mcp-approval-gate login or the app's keys in the workspace's Settings.
+  A Hibira Approvals https://hibira.io/approvals workspace: the people who answer approval requests from agents and workflows, their roles, approver groups, auto-approve rules and follow-up. The API token acts as its owner's email (which must be verified): a new workspace makes that email its admin, and an existing one can be managed only by its admins. Each workspace has its own app (app_id); tools connect to it with npx -y @hibira-io/mcp-approval-gate login or the app's keys in the workspace's Settings.
 ---
 
 # hibira_approvals_workspace (Resource)
 
-A [Hibira Approvals](https://hibira.io/approvals) workspace: the people who answer approval requests from agents and workflows, their roles and approver groups. The API token acts as its owner's email (which must be verified): a new workspace makes that email its admin, and an existing one can be managed only by its admins. Each workspace has its own app (`app_id`); tools connect to it with `npx -y @hibira-io/mcp-approval-gate login` or the app's keys in the workspace's Settings.
+A [Hibira Approvals](https://hibira.io/approvals) workspace: the people who answer approval requests from agents and workflows, their roles, approver groups, auto-approve rules and follow-up. The API token acts as its owner's email (which must be verified): a new workspace makes that email its admin, and an existing one can be managed only by its admins. Each workspace has its own app (`app_id`); tools connect to it with `npx -y @hibira-io/mcp-approval-gate login` or the app's keys in the workspace's Settings.
 
 ## Example Usage
 
@@ -25,6 +25,18 @@ resource "hibira_approvals_workspace" "ops" {
   groups = [
     { slug = "dba", name = "DBAs", members = ["dba-lead@example.com"] },
   ]
+
+  # Paid plans: approve read-only queries at once, never a DROP.
+  rules = [
+    { name = "Read-only queries", titles = ["SELECT *", "SHOW *"], except = ["*DROP*"] },
+  ]
+
+  # Remind after 10 minutes, let the DBAs decide after 30.
+  follow_up = {
+    remind_minutes   = 10
+    escalate_minutes = 30
+    escalate_to      = ["dba"]
+  }
 }
 
 # Agents and workflows send requests through the workspace's app; connect
@@ -43,14 +55,26 @@ output "approvals_app_id" {
 
 ### Optional
 
+- `follow_up` (Attributes) Reminders and escalation for requests nobody answers. Unset: managed in Hibira Approvals. (see [below for nested schema](#nestedatt--follow_up))
 - `groups` (Attributes List) Approver groups: a request sent to a group's `slug` (for example `approvers: ["dba"]`) can be answered only by its members. Unset: managed in Hibira Approvals. (see [below for nested schema](#nestedatt--groups))
 - `members` (Attributes Set) Everyone in the workspace. Include the token owner's email as an `admin`: Terraform would otherwise remove its own access. Unset: members are managed in Hibira Approvals and only read here. The plan limits how many admins and approvers there can be; viewers are free. (see [below for nested schema](#nestedatt--members))
+- `rules` (Attributes List) Auto-approve rules (paid plans): a request that matches a rule is approved at once, kept in the history with the rule's name, and notifies nobody. Patterns match the whole text, ignoring case; `*` stands for any run of characters. A request that asks for a quorum is never auto-approved. Unset: managed in Hibira Approvals. (see [below for nested schema](#nestedatt--rules))
 
 ### Read-Only
 
 - `app_id` (String) The workspace's own app, which requests are sent through.
 - `id` (String) The workspace's ID (`apw_...`).
 - `plan` (String) The workspace's plan (`free`, `starter`, `team`, `business`, `enterprise`). Changed in Hibira Approvals.
+
+<a id="nestedatt--follow_up"></a>
+### Nested Schema for `follow_up`
+
+Optional:
+
+- `escalate_minutes` (Number) Let `escalate_to` decide after this many minutes without an answer. `0` (default): never.
+- `escalate_to` (Set of String) Backup approvers: members' emails or approver group slugs, at most 10. Needed when `escalate_minutes` is set.
+- `remind_minutes` (Number) Remind the approvers after this many minutes without an answer (up to 3 times). `0` (default): never.
+
 
 <a id="nestedatt--groups"></a>
 ### Nested Schema for `groups`
@@ -69,6 +93,21 @@ Required:
 
 - `email` (String) The person's email, in lowercase. They sign in to Hibira Approvals with it.
 - `role` (String) `admin` (settings, members, keys), `approver` (answers requests) or `viewer` (sees them).
+
+
+<a id="nestedatt--rules"></a>
+### Nested Schema for `rules`
+
+Required:
+
+- `name` (String) Shown on requests the rule approved; unique in the workspace.
+
+Optional:
+
+- `agents` (List of String) Patterns for the request's agent, such as `Approval gate · staging`. Empty: any agent.
+- `enabled` (Boolean) Whether the rule approves requests. Defaults to `true`.
+- `except` (List of String) The rule does not apply when one of these matches the title or a line of the details, such as `*DROP*`.
+- `titles` (List of String) Patterns for the request's title, such as `SELECT *`. Empty: any title. A rule needs at least one pattern in `agents` or `titles` that is not just `*`.
 
 ## Import
 

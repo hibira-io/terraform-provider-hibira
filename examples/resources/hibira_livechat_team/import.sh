@@ -1,0 +1,1 @@
+terraform import hibira_livechat_team.billing ws_0123456789abcdef/team_0123456789
