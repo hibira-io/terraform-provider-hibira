@@ -61,6 +61,14 @@ func (f *fakeLiveChat) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	auth := r.Header.Get("Authorization")
 	f.byToken = auth == "Bearer "+liveChatTestToken
+	if f.byToken && r.Method == "GET" && strings.TrimPrefix(r.URL.Path, "/v1") == "/workspaces" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []client.LiveChatWorkspaceRow{
+			{ID: "ws_test", Name: "Test", Plan: "team", Role: "owner", API: true},
+			{ID: "ws_twin1", Name: "Twin", Plan: "team", Role: "owner", API: true},
+			{ID: "ws_twin2", Name: "Twin", Plan: "team", Role: "admin", API: true},
+		}})
+		return
+	}
 	switch {
 	case f.byToken && r.Header.Get(client.WorkspaceHeader) != "ws_test":
 		fail(http.StatusNotFound, "workspace_not_found")
@@ -644,5 +652,38 @@ func TestLiveChatWorkspaceMockTokenNotAdmin(t *testing.T) {
 			Config:      cfg,
 			ExpectError: regexp.MustCompile(`workspace_not_found`),
 		}},
+	})
+}
+
+// workspace_name is looked up once and its ID kept in state.
+func TestLiveChatWorkspaceMockTokenByName(t *testing.T) {
+	f, srv := newFakeLiveChat(t)
+	cfg := func(name string) string {
+		return strings.Replace(liveChatTokenConfig(srv.URL, "1", "admin"), `workspace_id     = "ws_test"`, `workspace_name   = "`+name+`"`, 1)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{Config: cfg("Nope"), ExpectError: regexp.MustCompile(`No Live Chat workspace with this name`)},
+			{Config: cfg("Twin"), ExpectError: regexp.MustCompile(`ws_twin1, ws_twin2`)},
+			{
+				Config: cfg("Test"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "workspace_id", "ws_test"),
+					resource.TestCheckResourceAttr(lcRes, "id", "ws_test"),
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					f.check(keysAre("key_1:admin")),
+					f.check(counts(1, 1)),
+				),
+			},
+			{
+				// Applied again: the ID in state is used, nothing changes.
+				Config: cfg("Test"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					f.check(counts(1, 1)),
+				),
+			},
+		},
 	})
 }
