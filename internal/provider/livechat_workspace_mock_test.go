@@ -63,7 +63,7 @@ func (f *fakeLiveChat) serve(w http.ResponseWriter, r *http.Request) {
 	f.byToken = auth == "Bearer "+liveChatTestToken
 	switch {
 	case f.byToken && r.Header.Get(client.WorkspaceHeader) != "ws_test":
-		fail(http.StatusForbidden, "not_workspace_admin")
+		fail(http.StatusNotFound, "workspace_not_found")
 		return
 	case f.byToken:
 	case auth != "Bearer "+f.key:
@@ -642,7 +642,7 @@ func TestLiveChatWorkspaceMockTokenNotAdmin(t *testing.T) {
 		ProtoV6ProviderFactories: testProviders,
 		Steps: []resource.TestStep{{
 			Config:      cfg,
-			ExpectError: regexp.MustCompile(`not_workspace_admin`),
+			ExpectError: regexp.MustCompile(`workspace_not_found`),
 		}},
 	})
 }

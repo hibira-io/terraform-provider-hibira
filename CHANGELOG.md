@@ -1,6 +1,6 @@
 ## 0.5.0
 
-- `hibira_livechat_workspace`: set `workspace_id` instead of `api_key` to use the provider's `api_token`, so one Hibira API token manages both Realtime and Live Chat. The token's person (its creator, else the account's owner) must be an owner or admin of the workspace in Live Chat. The resource then also makes the API key the site's server runs on (`server_key`, scope `server_key_scope`, default `admin`), makes a new one on `rotation` or a scope change and revokes the old one, makes it again if it is revoked in Live Chat, and revokes it on destroy. Needs Live Chat with hibira.io token support (pusher-server#899).
+- `hibira_livechat_workspace`: set `workspace_id` instead of `api_key` to use the provider's `api_token`, so one Hibira API token manages both Realtime and Live Chat. The token needs read, write and delete access, and its account's email must be an owner or admin of the workspace in Live Chat. The resource then also makes the API key the site's server runs on (`server_key`, scope `server_key_scope`, default `admin`), makes a new one on `rotation` or a scope change and revokes the old one, makes it again if it is revoked in Live Chat, and revokes it on destroy. Needs Live Chat with hibira.io token support (pusher-server#898 and #899).
 
 ## 0.4.1
 

@@ -101,8 +101,10 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 			e.Message += ": check the provider's api_token (a Hibira API token, made on the portal's API tokens page)"
 		case resp.StatusCode == http.StatusUnauthorized:
 			e.Message += ": check api_key (a Live Chat API key, made in Live Chat's Settings › API & webhooks)"
-		case e.Code == "not_workspace_admin":
-			e.Message += " (workspace " + c.workspace + ")"
+		case e.Code == "workspace_not_found":
+			e.Message += " (workspace " + c.workspace + "): the token's account email must be an owner or admin there, invite accepted"
+		case e.Code == "delete_scope_required":
+			e.Message += ": give the provider's api_token delete access (secrets are rotated and keys revoked)"
 		case e.Code == "admin_key_required" && c.workspace != "":
 			e.Message += ": the provider's api_token needs read and write access"
 		case e.Code == "admin_key_required":

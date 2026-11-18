@@ -110,9 +110,9 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 			"the provider's `api_token` and the workspace's `workspace_id`, or with one of the workspace's **admin** API keys " +
 			"(`api_key`, made in Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat " +
 			"first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.\n\n" +
-			"**With `workspace_id`** the provider's token (read and write) acts for its person: the team member who made it, " +
-			"else the Hibira account's owner. That person's confirmed email must be an owner or admin of the workspace in " +
-			"Live Chat (Team). The resource then also makes the API key the site's server runs on (`server_key`), makes a " +
+			"**With `workspace_id`** the provider's token (read, write and delete, since secrets are rotated and keys " +
+			"revoked) acts as its Hibira account's confirmed email, which must be an owner or admin of the workspace in " +
+			"Live Chat (Team) with its invite accepted; in a workspace held to single sign-on or SCIM, the owner. The resource then also makes the API key the site's server runs on (`server_key`), makes a " +
 			"new one when `rotation` or `server_key_scope` changes (revoking the old one), and revokes it on destroy. " +
 			"With `api_key` there is no `server_key`: the site uses its own key.\n\n" +
 			"Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted " +
