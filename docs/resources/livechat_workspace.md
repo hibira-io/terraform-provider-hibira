@@ -74,7 +74,7 @@ resource "hibira_livechat_workspace" "by_key" {
 - `endpoint` (String) Live Chat's address (https). Defaults to `https://chat.hibira.io`. Changing it replaces the resource.
 - `origins` (Set of String) The sites the widget may run on, like `https://shop.example.com` (lowercase, no path or trailing slash). Apps built with Capacitor add `https://localhost` (Android) and `capacitor://localhost` (iOS). Unset: managed in Live Chat and only read here.
 - `rotation` (String) Any value; changing it makes new `identity_secret` and `sso_secret` (the old single sign-on secret keeps working for a day, the old verified-visitor secret stops at once).
-- `server_key_scope` (String) With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default `admin`, which a server that also sets the workspace up needs). Changing it makes a new key.
+- `server_key_scope` (String) With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default `admin`, which a server that also sets the workspace up needs; `write` is enough to answer chats). Changing it makes a new key and revokes the old one at once, with no overlap: roll the new key out to the server in the same release.
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
 - `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, loopback or link-local IP address). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
@@ -86,7 +86,7 @@ resource "hibira_livechat_workspace" "by_key" {
 - `identity_secret` (String, Sensitive) The verified-visitor secret (`lcid_...`): the site signs a signed-in user's ID with it (`user_hash` = hex HMAC-SHA256 of the user ID).
 - `name` (String) The workspace's name (changed in Live Chat).
 - `plan` (String) The workspace's plan (changed in Live Chat).
-- `server_key` (String, Sensitive) With `workspace_id`: an API key of the workspace (`lck_ws_...`) for the site's server, named "terraform: server" in Live Chat. Empty with `api_key`.
+- `server_key` (String, Sensitive) With `workspace_id`: an API key of the workspace (`lck_ws_...`) for the site's server, named "terraform: server" in Live Chat. A `rotation`, a scope change or a switch to `api_key` revokes the old key at once (no overlap). Empty with `api_key`.
 - `server_key_id` (String) The ID of `server_key` (`key_...`); empty with `api_key`.
 - `sso_secret` (String, Sensitive) The single sign-on secret (`lcsso_...`) that signs agents' sign-in tokens (HS256 JWT).
 - `webhook_id` (String) The webhook endpoint's ID.

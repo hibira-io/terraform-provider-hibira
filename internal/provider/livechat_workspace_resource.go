@@ -152,7 +152,9 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 			},
 			"server_key_scope": schema.StringAttribute{
 				MarkdownDescription: "With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default " +
-					"`admin`, which a server that also sets the workspace up needs). Changing it makes a new key.",
+					"`admin`, which a server that also sets the workspace up needs; `write` is enough to answer chats). Changing " +
+					"it makes a new key and revokes the old one at once, with no overlap: roll the new key out to the server in " +
+					"the same release.",
 				Optional: true, Computed: true,
 				Default:    stringdefault.StaticString("admin"),
 				Validators: []validator.String{stringvalidator.OneOf(liveChatKeyScopes...)},
@@ -164,7 +166,8 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 			},
 			"server_key": schema.StringAttribute{
 				MarkdownDescription: "With `workspace_id`: an API key of the workspace (`lck_ws_...`) for the site's server, " +
-					"named \"" + serverKeyName + "\" in Live Chat. Empty with `api_key`.",
+					"named \"" + serverKeyName + "\" in Live Chat. A `rotation`, a scope change or a switch to `api_key` revokes the " +
+					"old key at once (no overlap). Empty with `api_key`.",
 				Computed: true, Sensitive: true,
 				PlanModifiers: keep,
 			},
