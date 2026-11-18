@@ -102,7 +102,7 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 		case resp.StatusCode == http.StatusUnauthorized:
 			e.Message += ": check api_key (a Live Chat API key, made in Live Chat's Settings › API & webhooks)"
 		case e.Code == "workspace_not_found":
-			e.Message += " (workspace " + c.workspace + "): the token's account email must be an owner or admin there, invite accepted"
+			e.Message += " (workspace " + c.workspace + "): the token's account email must be an owner or admin there with the invite accepted (only the owner when single sign-on only or SCIM is on)"
 		case e.Code == "delete_scope_required":
 			e.Message += ": give the provider's api_token delete access (secrets are rotated and keys revoked)"
 		case e.Code == "admin_key_required" && c.workspace != "":
