@@ -61,7 +61,7 @@ output "livechat_identity_secret" {
 - `rotation` (String) Any value; changing it makes new `identity_secret` and `sso_secret` (the old single sign-on secret keeps working for a day, the old verified-visitor secret stops at once).
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
-- `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local` or `.internal`). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
+- `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, loopback or link-local IP address). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
 
 ### Read-Only
 

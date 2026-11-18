@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -44,6 +45,8 @@ var (
 	// Live Chat itself: https, or http on this machine (tests).
 	liveChatEndpoint = regexp.MustCompile(`^(https://[^/\s]+|http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?)/?$`)
 )
+
+var numericLabel = regexp.MustCompile(`^(0x[0-9a-f]*|[0-9]+)$`)
 
 const originHelp = "must be an origin as Live Chat stores it: lowercase, no path or trailing slash, like https://shop.example.com"
 
@@ -170,7 +173,8 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 				Optional: true,
 			},
 			"webhook_url": schema.StringAttribute{
-				MarkdownDescription: "The https URL Live Chat posts conversation events to (not localhost, `.local` or `.internal`). " +
+				MarkdownDescription: "The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, " +
+					"loopback or link-local IP address). " +
 					"An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.",
 				Optional:   true,
 				Validators: []validator.String{webhookURLValidator{}},
@@ -201,7 +205,7 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 type webhookURLValidator struct{}
 
 func (webhookURLValidator) Description(context.Context) string {
-	return "must be an https:// URL whose host is not localhost, .local or .internal"
+	return "must be an https:// URL whose host is not localhost, .local, .internal or a private, loopback or link-local address"
 }
 func (v webhookURLValidator) MarkdownDescription(ctx context.Context) string {
 	return v.Description(ctx)
@@ -212,14 +216,35 @@ func (v webhookURLValidator) ValidateString(ctx context.Context, req validator.S
 	}
 	s := req.ConfigValue.ValueString()
 	u, err := url.Parse(s)
-	bad := err != nil || s != strings.TrimSpace(s) || len(s) > 2000 || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != ""
-	if !bad {
-		h := strings.ToLower(u.Hostname())
-		bad = h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal")
+	shown := "(not a URL)"
+	if err == nil {
+		shown = u.Redacted() // never repeat a password from user info
 	}
-	if bad {
-		resp.Diagnostics.AddAttributeError(req.Path, "Invalid webhook URL", v.Description(ctx)+", got "+s)
+	if err != nil || !webhookURLAllowed(s, u) {
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid webhook URL", v.Description(ctx)+", got "+shown)
 	}
+}
+
+// webhookURLAllowed is pusher-server's cleanWebhookURL (https, a host, no
+// user info, no local names), plus what its client refuses at connect
+// time: IP literals that are loopback, private, link-local or unspecified,
+// and hosts that are only digits (2130706433 is 127.0.0.1).
+func webhookURLAllowed(s string, u *url.URL) bool {
+	if s != strings.TrimSpace(s) || len(s) > 2000 || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return false
+	}
+	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
+		return false
+	}
+	if ip, err := netip.ParseAddr(h); err == nil {
+		ip = ip.Unmap()
+		return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast())
+	}
+	// A numeric last label is never a domain name: it is some decimal,
+	// octal or hex form of an IPv4 address (2130706433, 0x7f000001).
+	return !numericLabel.MatchString(h[strings.LastIndex(h, ".")+1:])
 }
 
 func (r *liveChatWorkspaceResource) lc(m liveChatWorkspaceModel) *client.LiveChat {
@@ -264,6 +289,8 @@ type liveChatRun struct {
 	plan  *liveChatWorkspaceModel
 	diags *diag.Diagnostics
 	soft  bool // failures are warnings from here on
+	// identityDone: the identity secret was made in this run.
+	identityDone bool
 }
 
 func (run *liveChatRun) fail(summary string, err error) {
@@ -393,6 +420,7 @@ func (run *liveChatRun) secrets(identity, sso, create bool) bool {
 			return false
 		}
 		run.plan.IdentitySecret = types.StringValue(s)
+		run.identityDone = true
 		run.soft = run.soft || create
 	}
 	if sso {
@@ -433,7 +461,7 @@ func (r *liveChatWorkspaceResource) ModifyPlan(ctx context.Context, req resource
 	if rotate || state.IdentitySecret.ValueString() == "" {
 		plan.IdentitySecret = types.StringUnknown()
 	}
-	if rotate || state.SSOSecret.ValueString() == "" {
+	if rotate || ssoPending(ctx, req.Private) || state.SSOSecret.ValueString() == "" {
 		plan.SSOSecret = types.StringUnknown()
 	}
 	if !plan.WebhookURL.Equal(state.WebhookURL) || (state.WebhookID.ValueString() == "" && plan.WebhookURL.ValueString() != "") {
@@ -446,6 +474,22 @@ func (r *liveChatWorkspaceResource) ModifyPlan(ctx context.Context, req resource
 		plan.WebhookID, plan.WebhookSecret = types.StringUnknown(), types.StringUnknown()
 	}
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
+}
+
+// privateSSOPending marks (in private state) an SSO secret still to be
+// made after a rotation that made only the identity secret.
+const privateSSOPending = "sso_pending"
+
+type privateGetter interface {
+	GetKey(ctx context.Context, key string) ([]byte, diag.Diagnostics)
+}
+
+func ssoPending(ctx context.Context, p privateGetter) bool {
+	if p == nil {
+		return false
+	}
+	b, _ := p.GetKey(ctx, privateSSOPending)
+	return string(b) == "true"
 }
 
 func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -468,6 +512,9 @@ func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.Cre
 	if !run.settings(false) || !run.webhook(empty) {
 		return
 	}
+	// The webhook's secret exists now (made, or rotated on adoption): from
+	// here on the state must be saved, so failures are warnings.
+	run.soft = true
 	if run.secrets(true, true, true) {
 		run.settings(true)
 	}
@@ -545,7 +592,9 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 			state.WebhookURL = types.StringNull()
 		default:
 			state.WebhookURL = types.StringValue(h.URL)
-			if !state.WebhookEvents.IsNull() {
+			// Unset events mean all of them: a narrower list set in Live
+			// Chat shows up as a change back to all.
+			if !state.WebhookEvents.IsNull() || !sameStrings(h.Events, liveChatWebhookEvents) {
 				state.WebhookEvents = setOf(ctx, h.Events, &resp.Diagnostics)
 			}
 		}
@@ -579,7 +628,9 @@ func (r *liveChatWorkspaceResource) Update(ctx context.Context, req resource.Upd
 	}
 	plan.IdentitySecret, plan.SSOSecret = state.IdentitySecret, state.SSOSecret
 	rotate := !plan.Rotation.Equal(state.Rotation)
-	needID, needSSO := rotate || state.IdentitySecret.ValueString() == "", rotate || state.SSOSecret.ValueString() == ""
+	pending := ssoPending(ctx, req.Private)
+	needID := rotate || state.IdentitySecret.ValueString() == ""
+	needSSO := rotate || pending || state.SSOSecret.ValueString() == ""
 	// Unknown values the run doesn't reach keep what the state had.
 	plan.WebhookID, plan.WebhookSecret = state.WebhookID, state.WebhookSecret
 	run := &liveChatRun{ctx: ctx, lc: lc, plan: &plan, diags: &resp.Diagnostics}
@@ -588,8 +639,16 @@ func (r *liveChatWorkspaceResource) Update(ctx context.Context, req resource.Upd
 		rotated = true
 		run.settings(true)
 	}
-	if rotate && !rotated {
-		// Keep the old keeper so the next plan asks for the rotation again.
+	switch {
+	case rotated:
+		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateSSOPending, nil)...)
+	case run.identityDone && needSSO:
+		// The identity secret is new but the SSO secret failed: keep the
+		// rotation (making the identity secret again would end the new one
+		// at once) and remember to make only the SSO secret next time.
+		resp.Diagnostics.Append(resp.Private.SetKey(ctx, privateSSOPending, []byte(`true`))...)
+	case rotate:
+		// Nothing rotated: keep the old keeper so the next plan asks again.
 		plan.Rotation = state.Rotation
 	}
 	fillUnknown(&plan)
