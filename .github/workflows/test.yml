@@ -14,6 +14,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The Live Chat resource tests run Terraform against a mock server.
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_wrapper: false
       - name: gofmt
         run: |
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }

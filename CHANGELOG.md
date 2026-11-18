@@ -1,7 +1,21 @@
-## Unreleased
+## 0.4.0
+
+- `hibira_livechat_workspace` resource: sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace from one admin API key: the widget's allowed origins, the origins that may frame the inbox, single sign-on only, a new verified-visitor secret and single sign-on secret (rotated with `rotation`), and one webhook endpoint with its signing secret. Needs Live Chat with the secret API (pusher-server#890). The state holds the API key and the secrets: use an encrypted backend.
+
+## 0.3.1
+
+- `hibira_approvals_workspace`: docs name Hibira Approvals instead of its old host.
+
+## 0.3.0
 
 - `hibira_approvals_workspace` resource: a Hibira Approvals workspace with its members, roles and approver groups; import with its `apw_...` ID. Needs a Hibira server with the Approvals workspace API (pusher-server#775).
+
+## 0.2.0
+
 - `hibira_waiting_room` resource: a waiting room of an app (rate, state, start time, pass lifetime, title, notice, return URLs); import with `<app_id>/<name>`.
+
+## 0.1.2
+
 - The provider now stops with a clear error when given an operations console token (`hbc_...`) instead of a portal API token.
 
 ## 0.1.1
