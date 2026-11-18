@@ -41,6 +41,9 @@ type Error struct {
 	Status  int
 	Code    string
 	Message string
+	// workspace is the existing workspace of a Live Chat 409
+	// workspace_exists.
+	workspace *LiveChatWorkspaceRow
 }
 
 func (e *Error) Error() string {

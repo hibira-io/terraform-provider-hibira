@@ -1,3 +1,8 @@
+## 0.7.0
+
+- `hibira_livechat_workspace`: `create_workspace = true` (with `workspace_name`) opens the workspace when the token's account has none by that name, owned by that account (`POST /v1/workspaces`, pusher-server#903). It starts on Free and the REST API needs Team, so the first apply opens it and stops with what to do; once its plan is changed (bought in the Hibira portal or set by a Hibira operator) the next apply finds it by name and sets it up. Destroying the resource never deletes the workspace.
+- `workspace_name` now skips workspaces the token can't act in (a pending invite, or a single sign-on/SCIM workspace it doesn't own, from the server's `usable`) and turned-off ones, and names them when nothing matches. A workspace whose plan lacks the REST API stops at the lookup with a clear message instead of a later `402`.
+
 ## 0.6.0
 
 - `hibira_livechat_workspace`: `workspace_name` instead of `workspace_id`. The provider's token lists the workspaces its account is in and takes the one with that name (it must be unique); the ID is kept in `workspace_id` in state, so nobody has to copy it. Needs pusher-server with `GET /v1/workspaces` (#898).

@@ -5,6 +5,9 @@ resource "hibira_livechat_workspace" "support" {
   # Or workspace_id = "ws_abc123". The name is looked up once with the
   # provider's token and the ID kept in state.
   workspace_name = "Example Shop"
+  # Open it when the token's account has none by this name (it starts on
+  # Free: change the plan to Team, then apply again).
+  create_workspace = true
 
   # The widget runs on the site and in its Capacitor apps; the inbox is
   # framed in the back office with single sign-on.

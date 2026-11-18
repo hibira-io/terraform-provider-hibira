@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
@@ -25,6 +26,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	"github.com/hibira-io/terraform-provider-hibira/internal/client"
 )
@@ -79,6 +81,7 @@ type liveChatWorkspaceModel struct {
 	APIKey         types.String `tfsdk:"api_key"`
 	WorkspaceID    types.String `tfsdk:"workspace_id"`
 	WorkspaceName  types.String `tfsdk:"workspace_name"`
+	CreateWS       types.Bool   `tfsdk:"create_workspace"`
 	Endpoint       types.String `tfsdk:"endpoint"`
 	Name           types.String `tfsdk:"name"`
 	Plan           types.String `tfsdk:"plan"`
@@ -168,6 +171,15 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 					"workspace in Live Chat later changes nothing here.",
 				Optional:   true,
 				Validators: []validator.String{stringvalidator.LengthBetween(1, 200)},
+			},
+			"create_workspace": schema.BoolAttribute{
+				MarkdownDescription: "With `workspace_name`: open the workspace when the token's account has none by that " +
+					"name (`POST /v1/workspaces`, a personal access token with write access; the account owns it). It starts " +
+					"on the Free plan, and the REST API this resource uses needs Team: the first apply opens it and stops, " +
+					"asking for the plan to be changed (bought in the Hibira portal, or set by a Hibira operator); the next " +
+					"apply finds it by name and sets it up. Destroying the resource never deletes the workspace.",
+				Optional: true, Computed: true,
+				Default: booldefault.StaticBool(false),
 			},
 			"server_key_scope": schema.StringAttribute{
 				MarkdownDescription: "With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default " +
@@ -391,7 +403,7 @@ func publicIP(ip netip.Addr) bool {
 	return true
 }
 
-// ConfigValidators: one way in, api_key or workspace_id.
+// ConfigValidators: one way in: api_key, workspace_id or workspace_name.
 func (r *liveChatWorkspaceResource) ConfigValidators(context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
 		resourcevalidator.ExactlyOneOf(path.MatchRoot("api_key"), path.MatchRoot("workspace_id"), path.MatchRoot("workspace_name")),
@@ -399,8 +411,9 @@ func (r *liveChatWorkspaceResource) ConfigValidators(context.Context) []resource
 }
 
 // resolve fills m's workspace_id: "" with api_key, else (when unknown)
-// the one workspace named workspace_name that the provider's token's
-// account is in.
+// the one usable workspace named workspace_name that the provider's
+// token's account is in, opened first with create_workspace. A workspace
+// whose plan lacks the REST API stops here with what to do.
 func (r *liveChatWorkspaceResource) resolve(ctx context.Context, m *liveChatWorkspaceModel, diags *diag.Diagnostics) bool {
 	if !m.byToken() {
 		m.WorkspaceID = types.StringValue("")
@@ -414,30 +427,66 @@ func (r *liveChatWorkspaceResource) resolve(ctx context.Context, m *liveChatWork
 		return false
 	}
 	name := m.WorkspaceName.ValueString()
-	list, err := r.api.LiveChat(m.Endpoint.ValueString(), "").Workspaces(ctx)
+	lc := r.api.LiveChat(m.Endpoint.ValueString(), "")
+	list, err := lc.Workspaces(ctx)
 	if err != nil {
 		diags.AddError("Listing Live Chat workspaces failed", err.Error())
 		return false
 	}
-	var ids []string
+	var found []client.LiveChatWorkspaceRow
+	var unusable []string
 	for _, w := range list {
-		if w.Name == name && !w.Disabled {
-			ids = append(ids, w.ID)
+		switch {
+		case w.Name != name:
+		case w.Disabled:
+			unusable = append(unusable, w.ID+" (turned off)")
+		case !w.CanUse():
+			unusable = append(unusable, w.ID+" (a pending invite, or single sign-on/SCIM and not the owner)")
+		default:
+			found = append(found, w)
 		}
 	}
-	switch len(ids) {
+	if len(found) == 0 && m.CreateWS.ValueBool() {
+		row, existed, err := lc.CreateWorkspace(ctx, name)
+		if err != nil {
+			diags.AddAttributeError(path.Root("workspace_name"), "Opening the Live Chat workspace failed", err.Error())
+			return false
+		}
+		if !existed {
+			tflog.Info(ctx, "opened Live Chat workspace", map[string]any{"workspace_id": row.ID, "plan": row.Plan})
+		}
+		found = append(found, *row)
+	}
+	switch len(found) {
 	case 1:
-		m.WorkspaceID = types.StringValue(ids[0])
-		return true
 	case 0:
-		diags.AddAttributeError(path.Root("workspace_name"), "No Live Chat workspace with this name",
-			fmt.Sprintf("The provider's api_token can't see a workspace named %q. Create it in Live Chat signed in as the "+
-				"token's Hibira account (which becomes its owner), on the Team plan, or set workspace_id.", name))
+		detail := fmt.Sprintf("The provider's api_token has no usable workspace named %q. Set create_workspace = true to "+
+			"open it, create it in Live Chat signed in as the token's Hibira account (which becomes its owner), or set "+
+			"workspace_id.", name)
+		if len(unusable) > 0 {
+			detail += " Workspaces with this name it can't use: " + strings.Join(unusable, ", ") + "."
+		}
+		diags.AddAttributeError(path.Root("workspace_name"), "No Live Chat workspace with this name", detail)
+		return false
 	default:
+		ids := make([]string, len(found))
+		for i, w := range found {
+			ids[i] = w.ID
+		}
 		diags.AddAttributeError(path.Root("workspace_name"), "More than one Live Chat workspace with this name",
 			fmt.Sprintf("Workspaces %s are all named %q; set workspace_id instead.", strings.Join(ids, ", "), name))
+		return false
 	}
-	return false
+	w := found[0]
+	if !w.API {
+		diags.AddAttributeError(path.Root("workspace_name"), "The Live Chat workspace's plan has no REST API",
+			fmt.Sprintf("Workspace %s (%q) is on the %s plan; setting it up needs Team or Business. Change its plan "+
+				"(buy it in the Hibira portal, or have a Hibira operator set it in the Live Chat console), then apply again: "+
+				"the workspace is found by name, not opened twice.", w.ID, name, w.Plan))
+		return false
+	}
+	m.WorkspaceID = types.StringValue(w.ID)
+	return true
 }
 
 // lc is the Live Chat client for m: its api_key, or the provider's token
@@ -813,6 +862,9 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 	// State from before workspace_id: the server key fields are new.
 	if state.WorkspaceID.IsNull() {
 		state.WorkspaceID = types.StringValue("")
+	}
+	if state.CreateWS.IsNull() {
+		state.CreateWS = types.BoolValue(false)
 	}
 	if state.ServerKeyID.IsNull() {
 		state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
