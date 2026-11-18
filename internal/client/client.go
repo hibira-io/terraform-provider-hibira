@@ -436,3 +436,6 @@ func (c *Client) UpdateWaitingRoom(ctx context.Context, appID, room string, in W
 func (c *Client) DeleteWaitingRoom(ctx context.Context, appID, room string) error {
 	return c.do(ctx, http.MethodDelete, roomsPath(appID)+"/"+url.PathEscape(room), nil, nil)
 }
+
+// UserAgent is the User-Agent the client sends.
+func (c *Client) UserAgent() string { return c.userAgent }
