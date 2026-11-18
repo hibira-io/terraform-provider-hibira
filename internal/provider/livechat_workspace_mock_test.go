@@ -389,6 +389,17 @@ func TestWebhookURLAllowed(t *testing.T) {
 		"https://user:pass@shop.example.com/x": false,
 		"https://shop.example.com/x#frag":      false,
 		" https://shop.example.com/x":          false,
+		"https://localhost../x":                false,
+		"https://shop..example.com/x":          false,
+		"https://[::127.0.0.1]/x":              false,
+		"https://[64:ff9b::7f00:1]/x":          false,
+		"https://[64:ff9b::808:808]/x":         true,
+		"https://[64:ff9b:1::a00:5]/x":         false,
+		"https://255.255.255.255/x":            false,
+		"https://240.0.0.1/x":                  false,
+		"https://100.64.0.1/x":                 false,
+		"https://[2001:4860:4860::8888]/x":     true,
+		"https://shop.example.com./x":          true,
 	} {
 		u, err := url.Parse(s)
 		if got := err == nil && webhookURLAllowed(s, u); got != want {

@@ -227,24 +227,72 @@ func (v webhookURLValidator) ValidateString(ctx context.Context, req validator.S
 
 // webhookURLAllowed is pusher-server's cleanWebhookURL (https, a host, no
 // user info, no local names), plus what its client refuses at connect
-// time: IP literals that are loopback, private, link-local or unspecified,
-// and hosts that are only digits (2130706433 is 127.0.0.1).
+// time: IP literals that are not public (including IPv4 inside IPv6), and
+// hosts that are only digits (2130706433 is 127.0.0.1). This is a plan-time
+// check of the text only: a DNS name that resolves to a private address
+// passes here, and pusher-server's check when it connects is the guard.
 func webhookURLAllowed(s string, u *url.URL) bool {
 	if s != strings.TrimSpace(s) || len(s) > 2000 || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
 		return false
 	}
-	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
-	if h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
+	h := strings.ToLower(u.Hostname())
+	if strings.HasSuffix(h, ".") {
+		h = h[:len(h)-1] // one root dot is fine; "localhost.." is not a host
+	}
+	if h == "" || strings.HasPrefix(h, ".") || strings.HasSuffix(h, ".") || strings.Contains(h, "..") ||
+		h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
 		return false
 	}
 	if ip, err := netip.ParseAddr(h); err == nil {
-		ip = ip.Unmap()
-		return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-			ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast())
+		return publicIP(ip)
 	}
 	// A numeric last label is never a domain name: it is some decimal,
 	// octal or hex form of an IPv4 address (2130706433, 0x7f000001).
 	return !numericLabel.MatchString(h[strings.LastIndex(h, ".")+1:])
+}
+
+// nonPublicV4 are IPv4 ranges netip has no predicate for: "this network",
+// shared address space (carrier NAT), IETF protocol assignments,
+// benchmarking, and the reserved 240/4 (which holds 255.255.255.255).
+var nonPublicV4 = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+}
+
+// IPv6 prefixes whose last 32 bits are an IPv4 address: IPv4-compatible
+// (::a.b.c.d, deprecated) and the well-known NAT64 prefix (RFC 6052).
+var embedsV4 = []netip.Prefix{
+	netip.MustParsePrefix("::/96"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+}
+
+// localNAT64 is the local-use NAT64 prefix (RFC 8215); where the IPv4
+// address sits inside it depends on the site, so it is refused whole.
+var localNAT64 = netip.MustParsePrefix("64:ff9b:1::/48")
+
+// publicIP reports whether ip is an address a webhook may be sent to.
+func publicIP(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	for _, p := range embedsV4 {
+		if ip.Is6() && p.Contains(ip) {
+			b := ip.As16()
+			ip = netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+			break
+		}
+	}
+	if localNAT64.Contains(ip) || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	for _, p := range nonPublicV4 {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *liveChatWorkspaceResource) lc(m liveChatWorkspaceModel) *client.LiveChat {
@@ -512,8 +560,9 @@ func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.Cre
 	if !run.settings(false) || !run.webhook(empty) {
 		return
 	}
-	// The webhook's secret exists now (made, or rotated on adoption): from
-	// here on the state must be saved, so failures are warnings.
+	// From here on a secret may exist (the webhook's, made or rotated on
+	// adoption; or, with no webhook_url, the identity and SSO secrets made
+	// next), so the state must be saved and failures are warnings.
 	run.soft = true
 	if run.secrets(true, true, true) {
 		run.settings(true)
@@ -593,7 +642,9 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 		default:
 			state.WebhookURL = types.StringValue(h.URL)
 			// Unset events mean all of them: a narrower list set in Live
-			// Chat shows up as a change back to all.
+			// Chat shows up as a change back to all. Live Chat stores the
+			// list as given and refuses an empty one, so "all" reads back
+			// as the full list, never [].
 			if !state.WebhookEvents.IsNull() || !sameStrings(h.Events, liveChatWebhookEvents) {
 				state.WebhookEvents = setOf(ctx, h.Events, &resp.Diagnostics)
 			}
