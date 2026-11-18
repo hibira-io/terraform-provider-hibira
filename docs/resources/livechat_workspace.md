@@ -3,32 +3,33 @@
 page_title: "hibira_livechat_workspace Resource - hibira"
 subcategory: ""
 description: |-
-  Sets up an existing Hibira Live Chat https://chat.hibira.io workspace for a site, with one of the workspace's admin API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
+  Sets up an existing Hibira Live Chat https://chat.hibira.io workspace for a site, either with the provider's api_token and the workspace's workspace_id, or with one of the workspace's admin API keys (api_key, made in Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
+  With workspace_id the provider's token (read, write and delete, since secrets are rotated and keys revoked) acts as its Hibira account's confirmed email, which must be an owner or admin of the workspace in Live Chat (Team) with its invite accepted; in a workspace held to single sign-on or SCIM, the owner. The resource then also makes the API key the site's server runs on (server_key), makes a new one when rotation or server_key_scope changes (revoking the old one), and revokes it on destroy. With api_key there is no server_key: the site uses its own key.
   Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted and gets a new secret), then makes a new verified-visitor secret and a new single sign-on secret, then sets the framing origins and sso_only, which need the single sign-on secret. An earlier verified-visitor secret stops working at once, an earlier single sign-on secret after a day. Once the secrets are made, a later step that fails is a warning, not an error: the resource is saved with what was done and the next apply finishes it, so a typo never makes the secrets again. Destroying the resource deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
-  State. The state holds api_key and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
-  Outside changes. Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in api_key.
+  State. The state holds api_key or server_key and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
+  Outside changes. Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in api_key. A server_key revoked in Live Chat is made again on the next apply.
 ---
 
 # hibira_livechat_workspace (Resource)
 
-Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, with one of the workspace's **admin** API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
+Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, either with the provider's `api_token` and the workspace's `workspace_id`, or with one of the workspace's **admin** API keys (`api_key`, made in Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
+
+**With `workspace_id`** the provider's token (read, write and delete, since secrets are rotated and keys revoked) acts as its Hibira account's confirmed email, which must be an owner or admin of the workspace in Live Chat (Team) with its invite accepted; in a workspace held to single sign-on or SCIM, the owner. The resource then also makes the API key the site's server runs on (`server_key`), makes a new one when `rotation` or `server_key_scope` changes (revoking the old one), and revokes it on destroy. With `api_key` there is no `server_key`: the site uses its own key.
 
 Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted and gets a new secret), then makes a new verified-visitor secret and a new single sign-on secret, then sets the framing origins and `sso_only`, which need the single sign-on secret. An earlier verified-visitor secret stops working at once, an earlier single sign-on secret after a day. Once the secrets are made, a later step that fails is a warning, not an error: the resource is saved with what was done and the next apply finishes it, so a typo never makes the secrets again. Destroying the resource deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
 
-**State.** The state holds `api_key` and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
+**State.** The state holds `api_key` or `server_key` and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
 
-**Outside changes.** Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in `api_key`.
+**Outside changes.** Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in `api_key`. A `server_key` revoked in Live Chat is made again on the next apply.
 
 ## Example Usage
 
 ```terraform
-variable "livechat_api_key" {
-  type      = string
-  sensitive = true # an admin API key of the workspace (lck_ws_...)
-}
-
+# With the provider's api_token: the token's person (its creator, else the
+# Hibira account's owner) must be an owner or admin of the workspace in
+# Live Chat. The resource also makes the key the site's server runs on.
 resource "hibira_livechat_workspace" "support" {
-  api_key = var.livechat_api_key
+  workspace_id = "ws_abc123"
 
   # The widget runs on the site and in its Capacitor apps; the inbox is
   # framed in the back office with single sign-on.
@@ -39,29 +40,45 @@ resource "hibira_livechat_workspace" "support" {
   webhook_url = "https://shop.example.com/api/support/livechat/webhook"
 }
 
-# Hand the secrets to the site, for example through a secret store.
+# Hand the key and the secrets to the site, for example through a secret store.
+output "livechat_server_key" {
+  value     = hibira_livechat_workspace.support.server_key
+  sensitive = true
+}
+
 output "livechat_identity_secret" {
   value     = hibira_livechat_workspace.support.identity_secret
   sensitive = true
+}
+
+# Or with one of the workspace's admin API keys instead of workspace_id
+# (no server_key then: the site uses its own key).
+variable "livechat_api_key" {
+  type      = string
+  sensitive = true # an admin API key of the workspace (lck_ws_...)
+}
+
+resource "hibira_livechat_workspace" "by_key" {
+  api_key = var.livechat_api_key
+  origins = ["https://other.example.com"]
 }
 ```
 
 <!-- schema generated by tfplugindocs -->
 ## Schema
 
-### Required
-
-- `api_key` (String, Sensitive) An admin API key of the workspace (`lck_ws_....`). A key of another workspace sets that workspace up from the start (new secrets and webhook); the old workspace's webhook endpoint is deleted when the old key still works.
-
 ### Optional
 
+- `api_key` (String, Sensitive) An admin API key of the workspace (`lck_ws_....`); set this or `workspace_id`. A key of another workspace sets that workspace up from the start (new secrets and webhook); the old workspace's webhook endpoint is deleted when the old key still works.
 - `embed_origins` (Set of String) The origins that may show the Live Chat inbox in a frame (with single sign-on), like `https://admin.example.com`. Unset: managed in Live Chat and only read here.
 - `endpoint` (String) Live Chat's address (https). Defaults to `https://chat.hibira.io`. Changing it replaces the resource.
 - `origins` (Set of String) The sites the widget may run on, like `https://shop.example.com` (lowercase, no path or trailing slash). Apps built with Capacitor add `https://localhost` (Android) and `capacitor://localhost` (iOS). Unset: managed in Live Chat and only read here.
 - `rotation` (String) Any value; changing it makes new `identity_secret` and `sso_secret` (the old single sign-on secret keeps working for a day, the old verified-visitor secret stops at once).
+- `server_key_scope` (String) With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default `admin`, which a server that also sets the workspace up needs; `write` is enough to answer chats). Changing it makes a new key and revokes the old one at once, with no overlap: roll the new key out to the server in the same release.
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
 - `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, loopback or link-local IP address). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
+- `workspace_id` (String) The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the provider's `api_token`; set this or `api_key`. Another workspace is set up from the start, as with a key of another workspace.
 
 ### Read-Only
 
@@ -69,6 +86,8 @@ output "livechat_identity_secret" {
 - `identity_secret` (String, Sensitive) The verified-visitor secret (`lcid_...`): the site signs a signed-in user's ID with it (`user_hash` = hex HMAC-SHA256 of the user ID).
 - `name` (String) The workspace's name (changed in Live Chat).
 - `plan` (String) The workspace's plan (changed in Live Chat).
+- `server_key` (String, Sensitive) With `workspace_id`: an API key of the workspace (`lck_ws_...`) for the site's server, named "terraform: server" in Live Chat. A `rotation`, a scope change or a switch to `api_key` revokes the old key at once (no overlap). Empty with `api_key`.
+- `server_key_id` (String) The ID of `server_key` (`key_...`); empty with `api_key`.
 - `sso_secret` (String, Sensitive) The single sign-on secret (`lcsso_...`) that signs agents' sign-in tokens (HS256 JWT).
 - `webhook_id` (String) The webhook endpoint's ID.
 - `webhook_secret` (String, Sensitive) The webhook signing secret (`lcwh_...`): `Hibira-Signature: t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<body>">`.
