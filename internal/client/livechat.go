@@ -35,6 +35,9 @@ func NewLiveChat(endpoint, key, userAgent string) *LiveChat {
 		http: &http.Client{Timeout: 30 * time.Second}}
 }
 
+// do makes one request. Nothing is retried, on purpose: a repeated secret
+// rotation would replace the secret the first one returned, and a 429 is
+// better shown than hidden.
 func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {

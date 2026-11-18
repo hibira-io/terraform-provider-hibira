@@ -4,14 +4,20 @@ page_title: "hibira_livechat_workspace Resource - hibira"
 subcategory: ""
 description: |-
   Sets up an existing Hibira Live Chat https://chat.hibira.io workspace for a site, with one of the workspace's admin API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
-  Creating this resource makes a new verified-visitor secret and a new single sign-on secret (an earlier verified-visitor secret stops at once, an earlier single sign-on secret after a day) and adopts or creates the webhook endpoint. Destroying it deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
+  Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted and gets a new secret), then makes a new verified-visitor secret and a new single sign-on secret, then sets the framing origins and sso_only, which need the single sign-on secret. An earlier verified-visitor secret stops working at once, an earlier single sign-on secret after a day. Once the secrets are made, a later step that fails is a warning, not an error: the resource is saved with what was done and the next apply finishes it, so a typo never makes the secrets again. Destroying the resource deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
+  State. The state holds api_key and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
+  Outside changes. Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in api_key.
 ---
 
 # hibira_livechat_workspace (Resource)
 
 Sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace for a site, with one of the workspace's **admin** API keys (Live Chat › Settings › API & webhooks). Create the workspace and choose its plan in Live Chat first: the API, webhooks, visitor verification and the embedded inbox need the Team plan or above.
 
-Creating this resource makes a new verified-visitor secret and a new single sign-on secret (an earlier verified-visitor secret stops at once, an earlier single sign-on secret after a day) and adopts or creates the webhook endpoint. Destroying it deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
+Creating this resource sets the widget's sites and the webhook endpoint (an endpoint with the same URL is adopted and gets a new secret), then makes a new verified-visitor secret and a new single sign-on secret, then sets the framing origins and `sso_only`, which need the single sign-on secret. An earlier verified-visitor secret stops working at once, an earlier single sign-on secret after a day. Once the secrets are made, a later step that fails is a warning, not an error: the resource is saved with what was done and the next apply finishes it, so a typo never makes the secrets again. Destroying the resource deletes the webhook endpoint and leaves the workspace, its settings and its secrets as they are.
+
+**State.** The state holds `api_key` and the three secrets in plain text, like every secret a Terraform provider returns: keep it in an encrypted backend (for example S3 with server-side encryption and restricted access) and never commit it.
+
+**Outside changes.** Turning visitor verification or single sign-on off in Live Chat makes the next apply create that secret again (only that one). A disabled or deleted webhook endpoint is enabled or created again. When Live Chat refuses the key in state (revoked), the refresh is skipped with a warning; set the new key in `api_key`.
 
 ## Example Usage
 
@@ -45,17 +51,17 @@ output "livechat_identity_secret" {
 
 ### Required
 
-- `api_key` (String, Sensitive) An admin API key of the workspace (`lck_ws_....`).
+- `api_key` (String, Sensitive) An admin API key of the workspace (`lck_ws_....`). A key of another workspace sets that workspace up from the start (new secrets and webhook); the old workspace's webhook endpoint is deleted when the old key still works.
 
 ### Optional
 
-- `embed_origins` (Set of String) The origins that may show the Live Chat inbox in a frame (with single sign-on). Unset: managed in Live Chat and only read here.
-- `endpoint` (String) Live Chat's address. Defaults to `https://chat.hibira.io`.
-- `origins` (Set of String) The sites the widget may run on, like `https://shop.example.com`. Apps built with Capacitor add `https://localhost` (Android) and `capacitor://localhost` (iOS). Unset: managed in Live Chat and only read here.
+- `embed_origins` (Set of String) The origins that may show the Live Chat inbox in a frame (with single sign-on), like `https://admin.example.com`. Unset: managed in Live Chat and only read here.
+- `endpoint` (String) Live Chat's address (https). Defaults to `https://chat.hibira.io`. Changing it replaces the resource.
+- `origins` (Set of String) The sites the widget may run on, like `https://shop.example.com` (lowercase, no path or trailing slash). Apps built with Capacitor add `https://localhost` (Android) and `capacitor://localhost` (iOS). Unset: managed in Live Chat and only read here.
 - `rotation` (String) Any value; changing it makes new `identity_secret` and `sso_secret` (the old single sign-on secret keeps working for a day, the old verified-visitor secret stops at once).
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
-- `webhook_url` (String) The URL Live Chat posts conversation events to. An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
+- `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local` or `.internal`). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
 
 ### Read-Only
 
