@@ -111,7 +111,7 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 					"the old key still works.",
 				Required:   true,
 				Sensitive:  true,
-				Validators: []validator.String{stringvalidator.RegexMatches(liveChatKey, "must be a Live Chat API key (lck_ws_...)")},
+				Validators: []validator.String{apiKeyValidator{}},
 			},
 			"endpoint": schema.StringAttribute{
 				MarkdownDescription: "Live Chat's address (https). Defaults to `" + client.DefaultLiveChatEndpoint + "`. " +
@@ -202,6 +202,25 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 
 // webhookURLValidator accepts what Live Chat accepts for an endpoint:
 // https, a host, no user info, not a local name.
+// apiKeyValidator checks the API key's shape without repeating it:
+// stringvalidator.RegexMatches puts the value in its error, which would
+// print a mistyped (or newline-padded) real key in CI logs.
+type apiKeyValidator struct{}
+
+func (apiKeyValidator) Description(context.Context) string {
+	return "must be a Live Chat API key (lck_ws_...)"
+}
+func (v apiKeyValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+func (v apiKeyValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() || liveChatKey.MatchString(req.ConfigValue.ValueString()) {
+		return
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid Live Chat API key",
+		v.Description(ctx)+" (the value is not shown; check for spaces or a line break around it)")
+}
+
 type webhookURLValidator struct{}
 
 func (webhookURLValidator) Description(context.Context) string {

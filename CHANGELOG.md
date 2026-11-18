@@ -1,3 +1,7 @@
+## 0.4.1
+
+- `hibira_livechat_workspace`: an `api_key` that isn't a Live Chat key no longer shows the key in the error message (it could print a real key with a stray line break into CI logs).
+
 ## 0.4.0
 
 - `hibira_livechat_workspace` resource: sets up an existing [Hibira Live Chat](https://chat.hibira.io) workspace from one admin API key: the widget's allowed origins, the origins that may frame the inbox, single sign-on only, a new verified-visitor secret and single sign-on secret (rotated with `rotation`), and one webhook endpoint with its signing secret. Needs Live Chat with the secret API (pusher-server#890). The state holds the API key and the secrets: use an encrypted backend.

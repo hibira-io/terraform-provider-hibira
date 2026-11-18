@@ -467,3 +467,22 @@ func TestLiveChatWorkspaceMockRotationSSOFails(t *testing.T) {
 		},
 	})
 }
+
+func TestAPIKeyErrorHidesKey(t *testing.T) {
+	key := "lck_ws_abcd1234.supersecretvalue0123456789\n"
+	var resp validator.StringResponse
+	apiKeyValidator{}.ValidateString(context.Background(), validator.StringRequest{ConfigValue: types.StringValue(key)}, &resp)
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("key with a line break accepted")
+	}
+	for _, d := range resp.Diagnostics {
+		if strings.Contains(d.Detail(), "supersecretvalue") || strings.Contains(d.Summary(), "supersecretvalue") {
+			t.Fatalf("error repeats the key: %s", d.Detail())
+		}
+	}
+	resp = validator.StringResponse{}
+	apiKeyValidator{}.ValidateString(context.Background(), validator.StringRequest{ConfigValue: types.StringValue("lck_ws_abcd1234.supersecretvalue0123456789")}, &resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("good key refused: %v", resp.Diagnostics)
+	}
+}
