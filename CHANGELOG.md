@@ -1,3 +1,7 @@
+## 0.6.0
+
+- `hibira_livechat_workspace`: `workspace_name` instead of `workspace_id`. The provider's token lists the workspaces its account is in and takes the one with that name (it must be unique); the ID is kept in `workspace_id` in state, so nobody has to copy it. Needs pusher-server with `GET /v1/workspaces` (#898).
+
 ## 0.5.0
 
 - `hibira_livechat_workspace`: set `workspace_id` instead of `api_key` to use the provider's `api_token`, so one Hibira API token manages both Realtime and Live Chat. The token needs read, write and delete access, and its account's email must be an owner or admin of the workspace in Live Chat. The resource then also makes the API key the site's server runs on (`server_key`, scope `server_key_scope`, default `admin`), makes a new one on `rotation` or a scope change and revokes the old one, makes it again if it is revoked in Live Chat, and revokes it on destroy. Needs Live Chat with hibira.io token support (pusher-server#898 and #899).

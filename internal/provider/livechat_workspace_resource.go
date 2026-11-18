@@ -78,6 +78,7 @@ type liveChatWorkspaceModel struct {
 	ID             types.String `tfsdk:"id"`
 	APIKey         types.String `tfsdk:"api_key"`
 	WorkspaceID    types.String `tfsdk:"workspace_id"`
+	WorkspaceName  types.String `tfsdk:"workspace_name"`
 	Endpoint       types.String `tfsdk:"endpoint"`
 	Name           types.String `tfsdk:"name"`
 	Plan           types.String `tfsdk:"plan"`
@@ -96,8 +97,17 @@ type liveChatWorkspaceModel struct {
 	ServerKey      types.String `tfsdk:"server_key"`
 }
 
-// byToken reports whether m uses the provider's token (workspace_id).
-func (m liveChatWorkspaceModel) byToken() bool { return m.WorkspaceID.ValueString() != "" }
+// byToken reports whether m uses the provider's token (workspace_id or
+// workspace_name).
+func (m liveChatWorkspaceModel) byToken() bool {
+	return m.WorkspaceID.ValueString() != "" || m.WorkspaceName.ValueString() != ""
+}
+
+// sameWorkspace reports whether plan keeps state's workspace_id (unknown:
+// workspace_name is to be looked up again).
+func sameWorkspace(plan, state liveChatWorkspaceModel) bool {
+	return !plan.WorkspaceID.IsUnknown() && plan.WorkspaceID.ValueString() == state.WorkspaceID.ValueString()
+}
 
 func (r *liveChatWorkspaceResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_livechat_workspace"
@@ -145,10 +155,19 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 			},
 			"workspace_id": schema.StringAttribute{
 				MarkdownDescription: "The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the " +
-					"provider's `api_token`; set this or `api_key`. Another workspace is set up from the start, as with a key " +
-					"of another workspace.",
+					"provider's `api_token`; set this, `workspace_name` or `api_key`. With `workspace_name` it is looked up " +
+					"and kept in state. Another workspace is set up from the start, as with a key of another workspace.",
+				Optional: true, Computed: true,
+				PlanModifiers: keep,
+				Validators:    []validator.String{stringvalidator.RegexMatches(liveChatWorkspaceID, "must be a Live Chat workspace ID (ws_...)")},
+			},
+			"workspace_name": schema.StringAttribute{
+				MarkdownDescription: "Instead of `workspace_id`: the workspace's name in Live Chat. On create (or when it " +
+					"changes) the provider's token lists the workspaces its account is in (`GET /v1/workspaces`) and takes the " +
+					"one with this name, which must be unique; its ID is then kept in `workspace_id`, so renaming the " +
+					"workspace in Live Chat later changes nothing here.",
 				Optional:   true,
-				Validators: []validator.String{stringvalidator.RegexMatches(liveChatWorkspaceID, "must be a Live Chat workspace ID (ws_...)")},
+				Validators: []validator.String{stringvalidator.LengthBetween(1, 200)},
 			},
 			"server_key_scope": schema.StringAttribute{
 				MarkdownDescription: "With `workspace_id`: the scope of `server_key`, one of `read`, `write`, `admin` (default " +
@@ -375,8 +394,50 @@ func publicIP(ip netip.Addr) bool {
 // ConfigValidators: one way in, api_key or workspace_id.
 func (r *liveChatWorkspaceResource) ConfigValidators(context.Context) []resource.ConfigValidator {
 	return []resource.ConfigValidator{
-		resourcevalidator.ExactlyOneOf(path.MatchRoot("api_key"), path.MatchRoot("workspace_id")),
+		resourcevalidator.ExactlyOneOf(path.MatchRoot("api_key"), path.MatchRoot("workspace_id"), path.MatchRoot("workspace_name")),
 	}
+}
+
+// resolve fills m's workspace_id: "" with api_key, else (when unknown)
+// the one workspace named workspace_name that the provider's token's
+// account is in.
+func (r *liveChatWorkspaceResource) resolve(ctx context.Context, m *liveChatWorkspaceModel, diags *diag.Diagnostics) bool {
+	if !m.byToken() {
+		m.WorkspaceID = types.StringValue("")
+		return true
+	}
+	if known(m.WorkspaceID) && m.WorkspaceID.ValueString() != "" {
+		return true
+	}
+	if r.api == nil {
+		diags.AddError("Provider not configured", "workspace_name needs the provider's api_token.")
+		return false
+	}
+	name := m.WorkspaceName.ValueString()
+	list, err := r.api.LiveChat(m.Endpoint.ValueString(), "").Workspaces(ctx)
+	if err != nil {
+		diags.AddError("Listing Live Chat workspaces failed", err.Error())
+		return false
+	}
+	var ids []string
+	for _, w := range list {
+		if w.Name == name && !w.Disabled {
+			ids = append(ids, w.ID)
+		}
+	}
+	switch len(ids) {
+	case 1:
+		m.WorkspaceID = types.StringValue(ids[0])
+		return true
+	case 0:
+		diags.AddAttributeError(path.Root("workspace_name"), "No Live Chat workspace with this name",
+			fmt.Sprintf("The provider's api_token can't see a workspace named %q. Create it in Live Chat signed in as the "+
+				"token's Hibira account (which becomes its owner), on the Team plan, or set workspace_id.", name))
+	default:
+		diags.AddAttributeError(path.Root("workspace_name"), "More than one Live Chat workspace with this name",
+			fmt.Sprintf("Workspaces %s are all named %q; set workspace_id instead.", strings.Join(ids, ", "), name))
+	}
+	return false
 }
 
 // lc is the Live Chat client for m: its api_key, or the provider's token
@@ -634,7 +695,14 @@ func (r *liveChatWorkspaceResource) ModifyPlan(ctx context.Context, req resource
 	if !plan.WebhookURL.Equal(state.WebhookURL) || (state.WebhookID.ValueString() == "" && plan.WebhookURL.ValueString() != "") {
 		plan.WebhookID, plan.WebhookSecret = types.StringUnknown(), types.StringUnknown()
 	}
-	if !plan.APIKey.Equal(state.APIKey) || !plan.WorkspaceID.Equal(state.WorkspaceID) {
+	switch {
+	case !plan.byToken():
+		plan.WorkspaceID = types.StringValue("")
+	case plan.WorkspaceName.ValueString() != "" && !plan.WorkspaceName.Equal(state.WorkspaceName):
+		// A new name (or a switch from workspace_id): look it up again.
+		plan.WorkspaceID = types.StringUnknown()
+	}
+	if !plan.APIKey.Equal(state.APIKey) || !sameWorkspace(plan, state) {
 		// The key may belong to another workspace: everything may change.
 		plan.ID, plan.Name, plan.Plan = types.StringUnknown(), types.StringUnknown(), types.StringUnknown()
 		plan.IdentitySecret, plan.SSOSecret = types.StringUnknown(), types.StringUnknown()
@@ -655,7 +723,7 @@ func (r *liveChatWorkspaceResource) ModifyPlan(ctx context.Context, req resource
 // rotation left it pending, or the workspace changes.
 func serverKeyNeeded(ctx context.Context, plan, state liveChatWorkspaceModel, p privateGetter) bool {
 	return plan.byToken() && (state.ServerKeyID.ValueString() == "" || !plan.Rotation.Equal(state.Rotation) ||
-		!plan.ServerKeyScope.Equal(state.ServerKeyScope) || !plan.WorkspaceID.Equal(state.WorkspaceID) ||
+		!plan.ServerKeyScope.Equal(state.ServerKeyScope) || !sameWorkspace(plan, state) ||
 		!plan.APIKey.Equal(state.APIKey) || privateFlag(ctx, p, privateKeyPending))
 }
 
@@ -686,7 +754,7 @@ func privateFlag(ctx context.Context, p privateGetter, key string) bool {
 func (r *liveChatWorkspaceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan liveChatWorkspaceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	if resp.Diagnostics.HasError() {
+	if resp.Diagnostics.HasError() || !r.resolve(ctx, &plan, &resp.Diagnostics) {
 		return
 	}
 	lc := r.lc(plan)
@@ -743,6 +811,9 @@ func (r *liveChatWorkspaceResource) Read(ctx context.Context, req resource.ReadR
 		return
 	}
 	// State from before workspace_id: the server key fields are new.
+	if state.WorkspaceID.IsNull() {
+		state.WorkspaceID = types.StringValue("")
+	}
 	if state.ServerKeyID.IsNull() {
 		state.ServerKeyID, state.ServerKey = types.StringValue(""), types.StringValue("")
 	}
@@ -824,7 +895,7 @@ func (r *liveChatWorkspaceResource) Update(ctx context.Context, req resource.Upd
 	var plan, state liveChatWorkspaceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
+	if resp.Diagnostics.HasError() || !r.resolve(ctx, &plan, &resp.Diagnostics) {
 		return
 	}
 	lc := r.lc(plan)

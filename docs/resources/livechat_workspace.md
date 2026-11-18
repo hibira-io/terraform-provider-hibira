@@ -29,7 +29,9 @@ Creating this resource sets the widget's sites and the webhook endpoint (an endp
 # Hibira account's owner) must be an owner or admin of the workspace in
 # Live Chat. The resource also makes the key the site's server runs on.
 resource "hibira_livechat_workspace" "support" {
-  workspace_id = "ws_abc123"
+  # Or workspace_id = "ws_abc123". The name is looked up once with the
+  # provider's token and the ID kept in state.
+  workspace_name = "Example Shop"
 
   # The widget runs on the site and in its Capacitor apps; the inbox is
   # framed in the back office with single sign-on.
@@ -78,7 +80,8 @@ resource "hibira_livechat_workspace" "by_key" {
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
 - `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, loopback or link-local IP address). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
-- `workspace_id` (String) The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the provider's `api_token`; set this or `api_key`. Another workspace is set up from the start, as with a key of another workspace.
+- `workspace_id` (String) The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the provider's `api_token`; set this, `workspace_name` or `api_key`. With `workspace_name` it is looked up and kept in state. Another workspace is set up from the start, as with a key of another workspace.
+- `workspace_name` (String) Instead of `workspace_id`: the workspace's name in Live Chat. On create (or when it changes) the provider's token lists the workspaces its account is in (`GET /v1/workspaces`) and takes the one with this name, which must be unique; its ID is then kept in `workspace_id`, so renaming the workspace in Live Chat later changes nothing here.
 
 ### Read-Only
 

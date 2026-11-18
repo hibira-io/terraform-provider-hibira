@@ -248,6 +248,26 @@ func (c *LiveChat) DeleteWebhook(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, liveChatWebhookPath(id), nil, nil)
 }
 
+// LiveChatWorkspaceRow is a workspace the token's account is in.
+type LiveChatWorkspaceRow struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Plan     string `json:"plan"`
+	Role     string `json:"role"`
+	Disabled bool   `json:"disabled"`
+	API      bool   `json:"api"`
+}
+
+// Workspaces lists the workspaces the Hibira API token's account is in
+// (on a client made with an empty workspace).
+func (c *LiveChat) Workspaces(ctx context.Context) ([]LiveChatWorkspaceRow, error) {
+	var out struct {
+		Data []LiveChatWorkspaceRow `json:"data"`
+	}
+	err := c.do(ctx, http.MethodGet, "/workspaces", nil, &out)
+	return out.Data, err
+}
+
 // LiveChatAPIKey is one of the workspace's API keys. Key (the secret) is
 // set only when it is made.
 type LiveChatAPIKey struct {
