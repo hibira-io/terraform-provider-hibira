@@ -20,8 +20,9 @@ func configure(t *testing.T, token string) *provider.ConfigureResponse {
 	p.Schema(ctx, provider.SchemaRequest{}, &sr)
 	typ := sr.Schema.Type().TerraformType(ctx)
 	raw := tftypes.NewValue(typ, map[string]tftypes.Value{
-		"api_token": tftypes.NewValue(tftypes.String, token),
-		"endpoint":  tftypes.NewValue(tftypes.String, nil),
+		"api_token":         tftypes.NewValue(tftypes.String, token),
+		"endpoint":          tftypes.NewValue(tftypes.String, nil),
+		"livechat_endpoint": tftypes.NewValue(tftypes.String, nil),
 	})
 	var resp provider.ConfigureResponse
 	p.Configure(ctx, provider.ConfigureRequest{Config: tfsdk.Config{Raw: raw, Schema: sr.Schema}}, &resp)

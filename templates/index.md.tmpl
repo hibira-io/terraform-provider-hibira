@@ -6,13 +6,15 @@ description: |-
 
 # Hibira Provider
 
-[Hibira](https://hibira.io) is a hosted, Pusher-compatible realtime WebSocket service. This provider manages its apps, their webhooks and their push notification (Beams-compatible) credentials, so each environment's realtime setup lives in Git with the rest of your infrastructure, and app keys and secrets flow straight into the other resources that need them.
+[Hibira](https://hibira.io) is a hosted, Pusher-compatible realtime WebSocket service. This provider manages its apps, their webhooks and their push notification (Beams-compatible) credentials, waiting rooms, Hibira Approvals and Hibira Live Chat, so each environment's realtime setup lives in Git with the rest of your infrastructure, and app keys and secrets flow straight into the other resources that need them.
 
 ## Authentication
 
 In the Hibira portal, open [API tokens](https://hibira.io/portal/api-tokens) and create a personal access token with **read and write** access (a read-only token can only use the data sources). Set it as `HIBIRA_API_TOKEN`, or pass it to `api_token` from a variable; don't commit it.
 
-A token limited to one app can manage that app's webhooks and push settings, but can't create apps.
+A token limited to one app can manage that app's webhooks and push settings, but can't create apps. Destroying apps, Approvals workspaces and webhooks, and rotating secrets, needs a token with **read, write and delete** access; a token can also be limited to some products.
+
+The same token sets up Hibira Approvals and, in the Live Chat workspaces its owner is an owner or admin of, Hibira Live Chat (`hibira_livechat_team`, `hibira_livechat_business_hours`, `hibira_livechat_saved_reply`, `hibira_livechat_knowledge_source`).
 
 ## Example Usage
 

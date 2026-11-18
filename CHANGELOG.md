@@ -1,3 +1,12 @@
+## 0.5.0
+
+Needs a Hibira server with pusher-server#898 (API token delete scope and API tokens on Live Chat).
+
+- `hibira_approvals_workspace`: `rules` (auto-approve rules; a changed rule keeps its ID) and `follow_up` (reminders and escalation). Destroying a workspace now confirms it with its name, and needs a token with delete access.
+- `hibira_approvals_webhook` resource: an Approvals webhook endpoint with its events and signing secret; import with `<workspace_id>/<webhook id>`.
+- Hibira Live Chat with the provider's API token, in a workspace named by `workspace_id`: `hibira_livechat_team` (members by email), `hibira_livechat_business_hours` (days, time zone, closed dates, away message; destroying turns them off), `hibira_livechat_saved_reply` and `hibira_livechat_knowledge_source` (a website the AI assistant answers from).
+- Provider: `livechat_endpoint` (or `HIBIRA_LIVECHAT_ENDPOINT`) for those resources.
+
 ## 0.4.1
 
 - `hibira_livechat_workspace`: an `api_key` that isn't a Live Chat key no longer shows the key in the error message (it could print a real key with a stray line break into CI logs).

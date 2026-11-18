@@ -1,0 +1,1 @@
+terraform import hibira_livechat_business_hours.main ws_0123456789abcdef

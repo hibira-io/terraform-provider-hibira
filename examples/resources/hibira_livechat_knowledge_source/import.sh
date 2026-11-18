@@ -1,0 +1,1 @@
+terraform import hibira_livechat_knowledge_source.help_center ws_0123456789abcdef/src_0123456789

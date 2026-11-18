@@ -1,0 +1,1 @@
+terraform import hibira_livechat_saved_reply.refund ws_0123456789abcdef/sr_0123456789

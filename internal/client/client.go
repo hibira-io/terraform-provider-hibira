@@ -25,6 +25,23 @@ type Client struct {
 	token     string
 	userAgent string
 	http      *http.Client
+	// liveChat is Live Chat's address (DefaultLiveChatEndpoint when empty).
+	liveChat string
+}
+
+// WithLiveChat sets Live Chat's address for LiveChatFor.
+func (c *Client) WithLiveChat(endpoint string) *Client {
+	c.liveChat = endpoint
+	return c
+}
+
+// LiveChatFor is a Live Chat client that uses this client's API token in
+// workspace (the token owner's only workspace when empty). Live Chat
+// gives an owner's or admin's write token an admin key's access.
+func (c *Client) LiveChatFor(workspace string) *LiveChat {
+	lc := NewLiveChat(c.liveChat, c.token, c.userAgent)
+	lc.workspace, lc.token = workspace, true
+	return lc
 }
 
 // New returns a client for endpoint (DefaultEndpoint when empty).
