@@ -38,6 +38,9 @@ type fakeLiveChat struct {
 	apiKeys map[string]client.LiveChatAPIKey
 	nextKey int
 	byToken bool // this request came with the Hibira token
+	// Workspaces the token's account is in, and how many it opened.
+	rows    []client.LiveChatWorkspaceRow
+	created int
 }
 
 // liveChatTestToken is the provider token the fake takes for ws_test.
@@ -45,7 +48,14 @@ const liveChatTestToken = "hkb_pat_livechat"
 
 func newFakeLiveChat(t *testing.T) (*fakeLiveChat, *httptest.Server) {
 	f := &fakeLiveChat{webhooks: map[string]*client.LiveChatWebhook{}, key: "lck_ws_test.0123456789abcdef0123",
-		apiKeys:  map[string]client.LiveChatAPIKey{},
+		apiKeys: map[string]client.LiveChatAPIKey{},
+		rows: []client.LiveChatWorkspaceRow{
+			{ID: "ws_test", Name: "Test", Plan: "team", Role: "owner", API: true},
+			{ID: "ws_twin1", Name: "Twin", Plan: "team", Role: "owner", API: true},
+			{ID: "ws_twin2", Name: "Twin", Plan: "team", Role: "admin", API: true},
+			{ID: "ws_pending", Name: "Pending", Plan: "team", Role: "admin", API: true, Usable: new(bool)},
+			{ID: "ws_off", Name: "Pending", Plan: "team", Role: "owner", API: true, Disabled: true},
+		},
 		settings: client.LiveChatSettings{Origins: []string{}, EmbedOrigins: []string{}}}
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(srv.Close)
@@ -61,8 +71,29 @@ func (f *fakeLiveChat) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	auth := r.Header.Get("Authorization")
 	f.byToken = auth == "Bearer "+liveChatTestToken
+	if f.byToken && r.Method == "GET" && strings.TrimPrefix(r.URL.Path, "/v1") == "/workspaces" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": f.rows})
+		return
+	}
+	if f.byToken && r.Method == "POST" && strings.TrimPrefix(r.URL.Path, "/v1") == "/workspaces" {
+		var in struct{ Name string }
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		for _, row := range f.rows {
+			if row.Name == in.Name && row.Role == "owner" && !row.Disabled {
+				w.WriteHeader(http.StatusConflict)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "exists", "code": "workspace_exists", "workspace": row})
+				return
+			}
+		}
+		f.created++
+		row := client.LiveChatWorkspaceRow{ID: "ws_new", Name: in.Name, Plan: "free", Role: "owner"}
+		f.rows = append(f.rows, row)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(row)
+		return
+	}
 	switch {
-	case f.byToken && r.Header.Get(client.WorkspaceHeader) != "ws_test":
+	case f.byToken && r.Header.Get(client.WorkspaceHeader) != "ws_test" && r.Header.Get(client.WorkspaceHeader) != "ws_new":
 		fail(http.StatusNotFound, "workspace_not_found")
 		return
 	case f.byToken:
@@ -106,6 +137,10 @@ func (f *fakeLiveChat) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		fail(404, "not_found")
 	case r.Method == "GET" && path == "/workspace":
+		if f.byToken && r.Header.Get(client.WorkspaceHeader) == "ws_new" {
+			ok(client.LiveChatWorkspace{ID: "ws_new", Name: "New", Plan: "team"})
+			return
+		}
 		ok(client.LiveChatWorkspace{ID: "ws_test", Name: "Test", Plan: "team"})
 	case path == "/settings" && r.Method == "GET":
 		ok(f.settings)
@@ -644,5 +679,80 @@ func TestLiveChatWorkspaceMockTokenNotAdmin(t *testing.T) {
 			Config:      cfg,
 			ExpectError: regexp.MustCompile(`workspace_not_found`),
 		}},
+	})
+}
+
+// workspace_name is looked up once and its ID kept in state.
+func TestLiveChatWorkspaceMockTokenByName(t *testing.T) {
+	f, srv := newFakeLiveChat(t)
+	cfg := func(name string) string {
+		return strings.Replace(liveChatTokenConfig(srv.URL, "1", "admin"), `workspace_id     = "ws_test"`, `workspace_name   = "`+name+`"`, 1)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{Config: cfg("Nope"), ExpectError: regexp.MustCompile(`No Live Chat workspace with this name`)},
+			{Config: cfg("Twin"), ExpectError: regexp.MustCompile(`ws_twin1, ws_twin2`)},
+			{
+				Config: cfg("Test"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "workspace_id", "ws_test"),
+					resource.TestCheckResourceAttr(lcRes, "id", "ws_test"),
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					f.check(keysAre("key_1:admin")),
+					f.check(counts(1, 1)),
+				),
+			},
+			{
+				// Applied again: the ID in state is used, nothing changes.
+				Config: cfg("Test"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					f.check(counts(1, 1)),
+				),
+			},
+		},
+	})
+}
+
+// create_workspace opens a missing workspace on Free and stops until its
+// plan has the API; the next apply finds it by name and sets it up.
+func TestLiveChatWorkspaceMockTokenCreate(t *testing.T) {
+	f, srv := newFakeLiveChat(t)
+	cfg := func(name string, create bool) string {
+		c := strings.Replace(liveChatTokenConfig(srv.URL, "1", "admin"), `workspace_id     = "ws_test"`,
+			fmt.Sprintf("workspace_name   = %q\n  create_workspace = %t", name, create), 1)
+		return c
+	}
+	upgrade := func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for i := range f.rows {
+			if f.rows[i].ID == "ws_new" {
+				f.rows[i].Plan, f.rows[i].API = "team", true
+			}
+		}
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviders,
+		Steps: []resource.TestStep{
+			{Config: cfg("Pending", false), ExpectError: regexp.MustCompile(`(?s)ws_pending \(a pending invite.*ws_off \(turned off\)`)},
+			{Config: cfg("New", false), ExpectError: regexp.MustCompile(`create_workspace = true`)},
+			{Config: cfg("New", true), ExpectError: regexp.MustCompile(`(?s)ws_new.*free plan`)},
+			{
+				PreConfig: upgrade,
+				Config:    cfg("New", true),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(lcRes, "workspace_id", "ws_new"),
+					resource.TestCheckResourceAttr(lcRes, "server_key_id", "key_1"),
+					func(*terraform.State) error {
+						if f.created != 1 {
+							return fmt.Errorf("opened %d workspaces, want 1", f.created)
+						}
+						return nil
+					},
+				),
+			},
+		},
 	})
 }

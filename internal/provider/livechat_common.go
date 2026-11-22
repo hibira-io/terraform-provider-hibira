@@ -22,8 +22,8 @@ import (
 
 // liveChatAccess is the note every such resource's description ends with.
 const liveChatAccess = " Uses the provider's API token, which needs write access (and delete access to remove things) and an owner " +
-	"or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with " +
-	"API tokens on Live Chat (pusher-server#898)."
+	"or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with " +
+	"a message naming the plan that has it. Needs Hibira server v0.2.166 or later."
 
 // liveChatBase is what the resources share: the provider's client.
 type liveChatBase struct{ client *client.Client }

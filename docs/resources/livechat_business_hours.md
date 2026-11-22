@@ -3,12 +3,12 @@
 page_title: "hibira_livechat_business_hours Resource - hibira"
 subcategory: ""
 description: |-
-  The business hours of a Hibira Live Chat https://chat.hibira.io workspace: outside them the widget shows the away message and asks for an email instead of promising a quick answer. A workspace has one set; destroying the resource turns business hours off. Business hours are on the Team and Business plans. Import with the workspace's ID. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+  The business hours of a Hibira Live Chat https://chat.hibira.io workspace: outside them the widget shows the away message and asks for an email instead of promising a quick answer. A workspace has one set; destroying the resource turns business hours off. Business hours are on the Team and Business plans. Import with the workspace's ID. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 ---
 
 # hibira_livechat_business_hours (Resource)
 
-The business hours of a [Hibira Live Chat](https://chat.hibira.io) workspace: outside them the widget shows the away message and asks for an email instead of promising a quick answer. A workspace has one set; destroying the resource turns business hours off. Business hours are on the Team and Business plans. Import with the workspace's ID. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+The business hours of a [Hibira Live Chat](https://chat.hibira.io) workspace: outside them the widget shows the away message and asks for an email instead of promising a quick answer. A workspace has one set; destroying the resource turns business hours off. Business hours are on the Team and Business plans. Import with the workspace's ID. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 
 ## Example Usage
 

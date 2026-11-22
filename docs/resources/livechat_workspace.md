@@ -29,7 +29,12 @@ Creating this resource sets the widget's sites and the webhook endpoint (an endp
 # Hibira account's owner) must be an owner or admin of the workspace in
 # Live Chat. The resource also makes the key the site's server runs on.
 resource "hibira_livechat_workspace" "support" {
-  workspace_id = "ws_abc123"
+  # Or workspace_id = "ws_abc123". The name is looked up once with the
+  # provider's token and the ID kept in state.
+  workspace_name = "Example Shop"
+  # Open it when the token's account has none by this name (it starts on
+  # Free: change the plan to Team, then apply again).
+  create_workspace = true
 
   # The widget runs on the site and in its Capacitor apps; the inbox is
   # framed in the back office with single sign-on.
@@ -70,6 +75,7 @@ resource "hibira_livechat_workspace" "by_key" {
 ### Optional
 
 - `api_key` (String, Sensitive) An admin API key of the workspace (`lck_ws_....`); set this or `workspace_id`. A key of another workspace sets that workspace up from the start (new secrets and webhook); the old workspace's webhook endpoint is deleted when the old key still works.
+- `create_workspace` (Boolean) With `workspace_name`: open the workspace when the token's account has none by that name (`POST /v1/workspaces`, a personal access token with write access; the account owns it). It starts on the Free plan, and the REST API this resource uses needs Team: the first apply opens it and stops, asking for the plan to be changed (bought in the Hibira portal, or set by a Hibira operator); the next apply finds it by name and sets it up. Destroying the resource never deletes the workspace.
 - `embed_origins` (Set of String) The origins that may show the Live Chat inbox in a frame (with single sign-on), like `https://admin.example.com`. Unset: managed in Live Chat and only read here.
 - `endpoint` (String) Live Chat's address (https). Defaults to `https://chat.hibira.io`. Changing it replaces the resource.
 - `origins` (Set of String) The sites the widget may run on, like `https://shop.example.com` (lowercase, no path or trailing slash). Apps built with Capacitor add `https://localhost` (Android) and `capacitor://localhost` (iOS). Unset: managed in Live Chat and only read here.
@@ -78,7 +84,8 @@ resource "hibira_livechat_workspace" "by_key" {
 - `sso_only` (Boolean) Agents sign in only through the site's single sign-on (the workspace owner keeps email sign-in). Unset: managed in Live Chat and only read here.
 - `webhook_events` (Set of String) The event types to send: `conversation.created`, `conversation.assigned`, `conversation.closed`, `conversation.reopened`, `conversation.rated`, `conversation.team_changed`, `message.created`. Unset: all of them.
 - `webhook_url` (String) The https URL Live Chat posts conversation events to (not localhost, `.local`, `.internal` or a private, loopback or link-local IP address). An endpoint already there with this URL is adopted (and gets a new secret). Unset: no endpoint.
-- `workspace_id` (String) The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the provider's `api_token`; set this or `api_key`. Another workspace is set up from the start, as with a key of another workspace.
+- `workspace_id` (String) The workspace's ID (`ws_...`, in Live Chat's address bar and settings), used with the provider's `api_token`; set this, `workspace_name` or `api_key`. With `workspace_name` it is looked up and kept in state. Another workspace is set up from the start, as with a key of another workspace.
+- `workspace_name` (String) Instead of `workspace_id`: the workspace's name in Live Chat. On create (or when it changes) the provider's token lists the workspaces its account is in (`GET /v1/workspaces`) and takes the one with this name, which must be unique; its ID is then kept in `workspace_id`, so renaming the workspace in Live Chat later changes nothing here.
 
 ### Read-Only
 

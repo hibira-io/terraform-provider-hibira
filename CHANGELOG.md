@@ -1,11 +1,16 @@
-## 0.6.0
+## 0.7.0
 
-Needs a Hibira server with pusher-server#898 (API token delete scope and API tokens on Live Chat).
-
+- `hibira_livechat_workspace`: `create_workspace = true` (with `workspace_name`) opens the workspace when the token's account has none by that name, owned by that account (`POST /v1/workspaces`, pusher-server#903). It starts on Free and the REST API needs Team, so the first apply opens it and stops with what to do; once its plan is changed (bought in the Hibira portal or set by a Hibira operator) the next apply finds it by name and sets it up. Destroying the resource never deletes the workspace.
+- `workspace_name` now skips workspaces the token can't act in (a pending invite, or a single sign-on/SCIM workspace it doesn't own, from the server's `usable`) and turned-off ones, and names them when nothing matches. A workspace whose plan lacks the REST API stops at the lookup with a clear message instead of a later `402`.
+- Needs pusher-server v0.2.166 or later for the resources below: API tokens with the delete scope, and Live Chat settings with an API token on every plan (a feature the plan doesn't include is refused with a message naming the plan).
 - `hibira_approvals_workspace`: `rules` (auto-approve rules; a changed rule keeps its ID) and `follow_up` (reminders and escalation). Destroying a workspace now confirms it with its name, and needs a token with delete access.
 - `hibira_approvals_webhook` resource: an Approvals webhook endpoint with its events and signing secret; import with `<workspace_id>/<webhook id>`.
 - Hibira Live Chat with the provider's API token, in a workspace named by `workspace_id`: `hibira_livechat_team` (members by email), `hibira_livechat_business_hours` (days, time zone, closed dates, away message; destroying turns them off), `hibira_livechat_saved_reply` and `hibira_livechat_knowledge_source` (a website the AI assistant answers from).
 - Provider: `livechat_endpoint` (or `HIBIRA_LIVECHAT_ENDPOINT`) for those resources.
+
+## 0.6.0
+
+- `hibira_livechat_workspace`: `workspace_name` instead of `workspace_id`. The provider's token lists the workspaces its account is in and takes the one with that name (it must be unique); the ID is kept in `workspace_id` in state, so nobody has to copy it. Needs pusher-server with `GET /v1/workspaces` (#898).
 
 ## 0.5.0
 

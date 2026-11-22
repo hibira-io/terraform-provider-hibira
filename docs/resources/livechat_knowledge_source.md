@@ -3,12 +3,12 @@
 page_title: "hibira_livechat_knowledge_source Resource - hibira"
 subcategory: ""
 description: |-
-  A website the AI assistant of a Hibira Live Chat https://chat.hibira.io workspace answers from. Live Chat reads the site's llms-full.txt, llms.txt or sitemap (or the page itself) into the knowledge base and keeps it up to date; destroying the resource removes the entries read from it. The plan sets how many web pages can be read. Import with <workspace_id>/<source id>. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+  A website the AI assistant of a Hibira Live Chat https://chat.hibira.io workspace answers from. Live Chat reads the site's llms-full.txt, llms.txt or sitemap (or the page itself) into the knowledge base and keeps it up to date; destroying the resource removes the entries read from it. The plan sets how many web pages can be read. Import with <workspace_id>/<source id>. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 ---
 
 # hibira_livechat_knowledge_source (Resource)
 
-A website the AI assistant of a [Hibira Live Chat](https://chat.hibira.io) workspace answers from. Live Chat reads the site's `llms-full.txt`, `llms.txt` or sitemap (or the page itself) into the knowledge base and keeps it up to date; destroying the resource removes the entries read from it. The plan sets how many web pages can be read. Import with `<workspace_id>/<source id>`. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+A website the AI assistant of a [Hibira Live Chat](https://chat.hibira.io) workspace answers from. Live Chat reads the site's `llms-full.txt`, `llms.txt` or sitemap (or the page itself) into the knowledge base and keeps it up to date; destroying the resource removes the entries read from it. The plan sets how many web pages can be read. Import with `<workspace_id>/<source id>`. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 
 ## Example Usage
 

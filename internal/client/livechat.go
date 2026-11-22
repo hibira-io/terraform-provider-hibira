@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,11 +89,12 @@ func (c *LiveChat) do(ctx context.Context, method, path string, in, out any) err
 	if resp.StatusCode >= 400 {
 		e := &Error{Status: resp.StatusCode}
 		var msg struct {
-			Error string `json:"error"`
-			Code  string `json:"code"`
+			Error     string                `json:"error"`
+			Code      string                `json:"code"`
+			Workspace *LiveChatWorkspaceRow `json:"workspace"`
 		}
 		if json.Unmarshal(b, &msg) == nil && msg.Error != "" {
-			e.Message, e.Code = msg.Error, msg.Code
+			e.Message, e.Code, e.workspace = msg.Error, msg.Code, msg.Workspace
 		} else {
 			e.Message = http.StatusText(resp.StatusCode)
 		}
@@ -248,6 +250,50 @@ func (c *LiveChat) RotateWebhookSecret(ctx context.Context, id string) (string, 
 // DeleteWebhook removes an endpoint.
 func (c *LiveChat) DeleteWebhook(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, liveChatWebhookPath(id), nil, nil)
+}
+
+// LiveChatWorkspaceRow is a workspace the token's account is in.
+type LiveChatWorkspaceRow struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Plan     string `json:"plan"`
+	Role     string `json:"role"`
+	Disabled bool   `json:"disabled"`
+	API      bool   `json:"api"`
+	// Usable is whether the token can act in the workspace (joined, and
+	// the owner of an SSO-only or SCIM one); nil from servers before it.
+	Usable *bool `json:"usable,omitempty"`
+}
+
+// CanUse is Usable, true when the server doesn't say.
+func (w LiveChatWorkspaceRow) CanUse() bool { return w.Usable == nil || *w.Usable }
+
+// CreateWorkspace opens a workspace named name that the Hibira API token's
+// account owns (POST /v1/workspaces, a personal access token with write
+// access). It starts on Free. When the account already owns one with that
+// name the server answers 409 workspace_exists with it, returned here
+// with existed true.
+func (c *LiveChat) CreateWorkspace(ctx context.Context, name string) (*LiveChatWorkspaceRow, bool, error) {
+	var out LiveChatWorkspaceRow
+	err := c.do(ctx, http.MethodPost, "/workspaces", map[string]string{"name": name}, &out)
+	var e *Error
+	if errors.As(err, &e) && e.Status == http.StatusConflict && e.Code == "workspace_exists" && e.workspace != nil {
+		return e.workspace, true, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return &out, false, nil
+}
+
+// Workspaces lists the workspaces the Hibira API token's account is in
+// (on a client made with an empty workspace).
+func (c *LiveChat) Workspaces(ctx context.Context) ([]LiveChatWorkspaceRow, error) {
+	var out struct {
+		Data []LiveChatWorkspaceRow `json:"data"`
+	}
+	err := c.do(ctx, http.MethodGet, "/workspaces", nil, &out)
+	return out.Data, err
 }
 
 // LiveChatAPIKey is one of the workspace's API keys. Key (the secret) is

@@ -3,12 +3,12 @@
 page_title: "hibira_livechat_saved_reply Resource - hibira"
 subcategory: ""
 description: |-
-  A saved reply in a Hibira Live Chat https://chat.hibira.io workspace: text agents insert by typing / and its shortcut in the reply box. Saved replies are on the Team and Business plans. Import with <workspace_id>/<saved reply id>. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+  A saved reply in a Hibira Live Chat https://chat.hibira.io workspace: text agents insert by typing / and its shortcut in the reply box. Saved replies are on the Team and Business plans. Import with <workspace_id>/<saved reply id>. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 ---
 
 # hibira_livechat_saved_reply (Resource)
 
-A saved reply in a [Hibira Live Chat](https://chat.hibira.io) workspace: text agents insert by typing `/` and its shortcut in the reply box. Saved replies are on the Team and Business plans. Import with `<workspace_id>/<saved reply id>`. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner; the workspace's plan must include the API (Team and up). Needs a Hibira server with API tokens on Live Chat (pusher-server#898).
+A saved reply in a [Hibira Live Chat](https://chat.hibira.io) workspace: text agents insert by typing `/` and its shortcut in the reply box. Saved replies are on the Team and Business plans. Import with `<workspace_id>/<saved reply id>`. Uses the provider's API token, which needs write access (and delete access to remove things) and an owner or admin of the workspace as its owner. Works on every plan; a feature the workspace's plan doesn't include is refused with a message naming the plan that has it. Needs Hibira server v0.2.166 or later.
 
 ## Example Usage
 
