@@ -33,7 +33,7 @@ output "app_key" {
 }
 ```
 
-Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access. Operations console tokens (`hbc_...`) don't work here: the provider calls the customer API, and the console's tokens only reach the console.
+Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens) page: a personal access token with read and write access. Give it **read, write and delete** access only if Terraform should be able to destroy apps, Approvals workspaces and webhooks, or rotate secrets; you can also limit it to the products it manages. Operations console tokens (`hbc_...`) don't work here: the provider calls the customer API, and the console's tokens only reach the console.
 
 | | |
 |---|---|
@@ -41,8 +41,13 @@ Make the token on the portal's [API tokens](https://hibira.io/portal/api-tokens)
 | `hibira_webhook` | One webhook endpoint of an app and the events it receives. |
 | `hibira_push` | An app's push notifications (Beams-compatible) with APNs and FCM credentials. |
 | `hibira_waiting_room` | A waiting room in front of a ticket drop or launch: rate, state, start time, return URLs. |
-| `hibira_approvals_workspace` | A [Hibira Approvals](https://hibira.io/approvals) workspace: who answers your agents' and workflows' approval requests, their roles and approver groups. |
+| `hibira_approvals_workspace` | A [Hibira Approvals](https://hibira.io/approvals) workspace: who answers your agents' and workflows' approval requests, their roles, approver groups, auto-approve rules, reminders and escalation. |
+| `hibira_approvals_webhook` | A webhook endpoint of an Approvals workspace, with its signing secret. |
 | `hibira_livechat_workspace` | A [Hibira Live Chat](https://chat.hibira.io) workspace set up for a site: allowed and embedding origins, single sign-on only, the verified-visitor and single sign-on secrets, a webhook endpoint and, with the provider token, the API key the site's server uses. |
+| `hibira_livechat_team` | A team of Live Chat agents conversations can be sent to. |
+| `hibira_livechat_business_hours` | A Live Chat workspace's opening hours, holidays and away message. |
+| `hibira_livechat_saved_reply` | A saved reply agents insert with `/shortcut`. |
+| `hibira_livechat_knowledge_source` | A website the Live Chat AI assistant answers from. |
 | `data.hibira_app`, `data.hibira_apps` | Read existing apps. |
 
 Full documentation is on the [Terraform Registry](https://registry.terraform.io/providers/hibira-io/hibira/latest/docs) and in [docs/](docs).

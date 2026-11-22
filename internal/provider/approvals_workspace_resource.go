@@ -42,12 +42,14 @@ func newApprovalsWorkspaceResource() resource.Resource { return &approvalsWorksp
 type approvalsWorkspaceResource struct{ client *client.Client }
 
 type approvalsWorkspaceModel struct {
-	ID      types.String `tfsdk:"id"`
-	Name    types.String `tfsdk:"name"`
-	Plan    types.String `tfsdk:"plan"`
-	AppID   types.String `tfsdk:"app_id"`
-	Members types.Set    `tfsdk:"members"`
-	Groups  types.List   `tfsdk:"groups"`
+	ID       types.String `tfsdk:"id"`
+	Name     types.String `tfsdk:"name"`
+	Plan     types.String `tfsdk:"plan"`
+	AppID    types.String `tfsdk:"app_id"`
+	Members  types.Set    `tfsdk:"members"`
+	Groups   types.List   `tfsdk:"groups"`
+	Rules    types.List   `tfsdk:"rules"`
+	FollowUp types.Object `tfsdk:"follow_up"`
 }
 
 type memberModel struct {
@@ -73,7 +75,7 @@ func (r *approvalsWorkspaceResource) Metadata(_ context.Context, req resource.Me
 func (r *approvalsWorkspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A [Hibira Approvals](https://hibira.io/approvals) workspace: the people who answer approval requests " +
-			"from agents and workflows, their roles and approver groups. The API token acts as its owner's email (which must be " +
+			"from agents and workflows, their roles, approver groups, auto-approve rules and follow-up. The API token acts as its owner's email (which must be " +
 			"verified): a new workspace makes that email its admin, and an existing one can be managed only by its admins. " +
 			"Each workspace has its own app (`app_id`); tools connect to it with `npx -y @hibira-io/mcp-approval-gate login` or the " +
 			"app's keys in the workspace's Settings.",
@@ -142,6 +144,9 @@ func (r *approvalsWorkspaceResource) Schema(_ context.Context, _ resource.Schema
 			},
 		},
 	}
+	for k, v := range approvalsSettingsAttributes() {
+		resp.Schema.Attributes[k] = v
+	}
 }
 
 func (r *approvalsWorkspaceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
@@ -200,6 +205,7 @@ func (m *approvalsWorkspaceModel) apply(ctx context.Context, w *client.Approvals
 	l, d := types.ListValue(groupType, groups)
 	diags.Append(d...)
 	m.Groups = l
+	m.Rules, m.FollowUp = settingsValues(ctx, w, diags)
 }
 
 // reconcile brings w's members and groups to the wanted ones (nil: leave
@@ -267,6 +273,7 @@ func (r *approvalsWorkspaceResource) Create(ctx context.Context, req resource.Cr
 	var plan approvalsWorkspaceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	members, groups := plan.wanted(ctx, &resp.Diagnostics)
+	rules, followUp := wantedSettings(ctx, plan.Rules, plan.FollowUp, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -278,7 +285,11 @@ func (r *approvalsWorkspaceResource) Create(ctx context.Context, req resource.Cr
 	// Keep the workspace in the state even if setting it up fails, so the
 	// next apply finishes it instead of making another.
 	plan.apply(ctx, w, &resp.Diagnostics)
-	if w2, err := r.reconcile(ctx, w, members, groups); err != nil {
+	w2, err := r.reconcile(ctx, w, members, groups)
+	if err == nil {
+		w2, err = r.reconcileSettings(ctx, w2, rules, followUp)
+	}
+	if err != nil {
 		resp.Diagnostics.AddError("Setting up Hibira Approvals workspace failed", err.Error())
 	} else {
 		plan.apply(ctx, w2, &resp.Diagnostics)
@@ -310,6 +321,7 @@ func (r *approvalsWorkspaceResource) Update(ctx context.Context, req resource.Up
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	members, groups := plan.wanted(ctx, &resp.Diagnostics)
+	rules, followUp := wantedSettings(ctx, plan.Rules, plan.FollowUp, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -320,6 +332,9 @@ func (r *approvalsWorkspaceResource) Update(ctx context.Context, req resource.Up
 	}
 	if err == nil {
 		w, err = r.reconcile(ctx, w, members, groups)
+	}
+	if err == nil {
+		w, err = r.reconcileSettings(ctx, w, rules, followUp)
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Updating Hibira Approvals workspace failed", err.Error())
@@ -335,7 +350,7 @@ func (r *approvalsWorkspaceResource) Delete(ctx context.Context, req resource.De
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteApprovalsWorkspace(ctx, state.ID.ValueString())
+	err := r.client.DeleteApprovalsWorkspace(ctx, state.ID.ValueString(), state.Name.ValueString())
 	var e *client.Error
 	if errors.As(err, &e) && (e.Status == 404 || e.Status == 405) {
 		resp.Diagnostics.AddWarning("Approvals workspace kept",

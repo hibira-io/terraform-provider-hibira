@@ -1,3 +1,11 @@
+## 0.8.0
+
+- Needs pusher-server v0.2.166 or later for the resources below: API tokens with the delete scope, and Live Chat settings with an API token on every plan (a feature the plan doesn't include is refused with a message naming the plan).
+- `hibira_approvals_workspace`: `rules` (auto-approve rules; a changed rule keeps its ID) and `follow_up` (reminders and escalation). Destroying a workspace now confirms it with its name, and needs a token with delete access.
+- `hibira_approvals_webhook` resource: an Approvals webhook endpoint with its events and signing secret; import with `<workspace_id>/<webhook id>`.
+- Hibira Live Chat with the provider's API token, in a workspace named by `workspace_id`: `hibira_livechat_team` (members by email), `hibira_livechat_business_hours` (days, time zone, closed dates, away message; destroying turns them off), `hibira_livechat_saved_reply` and `hibira_livechat_knowledge_source` (a website the AI assistant answers from).
+- Provider: `livechat_endpoint` (or `HIBIRA_LIVECHAT_ENDPOINT`) for those resources.
+
 ## 0.7.0
 
 - `hibira_livechat_workspace`: `create_workspace = true` (with `workspace_name`) opens the workspace when the token's account has none by that name, owned by that account (`POST /v1/workspaces`, pusher-server#903). It starts on Free and the REST API needs Team, so the first apply opens it and stops with what to do; once its plan is changed (bought in the Hibira portal or set by a Hibira operator) the next apply finds it by name and sets it up. Destroying the resource never deletes the workspace.
