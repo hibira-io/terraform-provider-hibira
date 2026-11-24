@@ -57,7 +57,7 @@ var (
 	liveChatOrigin    = regexp.MustCompile(`^(https://[a-z0-9.-]+(:[0-9]{1,5})?|http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?)$`)
 	liveChatAppOrigin = regexp.MustCompile(`^(capacitor|ionic)://localhost$`)
 	// Live Chat itself: https, or http on this machine (tests).
-	liveChatEndpoint = regexp.MustCompile(`^(https://[^/\s]+|http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?)/?$`)
+	liveChatEndpoint = regexp.MustCompile(`^(https://[^/\s]+|http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?)(/[^\s?#]*)?$`)
 )
 
 var numericLabel = regexp.MustCompile(`^(0x[0-9a-f]*|[0-9]+)$`)
@@ -207,7 +207,7 @@ func (r *liveChatWorkspaceResource) Schema(_ context.Context, _ resource.SchemaR
 					"Changing it replaces the resource.",
 				Optional: true, Computed: true,
 				Default:       stringdefault.StaticString(client.DefaultLiveChatEndpoint),
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				PlanModifiers: []planmodifier.String{keepLegacyLiveChatEndpoint{}, stringplanmodifier.RequiresReplace()},
 				Validators:    []validator.String{stringvalidator.RegexMatches(liveChatEndpoint, "must be an https:// URL")},
 			},
 			"name": schema.StringAttribute{
@@ -1053,4 +1053,24 @@ func (r *liveChatWorkspaceResource) revokeServerKey(ctx context.Context, m liveC
 		return
 	}
 	diags.AddError("Revoking the Live Chat server key failed", err.Error())
+}
+
+// keepLegacyLiveChatEndpoint keeps a workspace set up before 0.9.0, whose
+// state holds the old default (https://chat.hibira.io), when its
+// configuration leaves endpoint out: the new default would otherwise replace
+// the resource. Both addresses reach the same REST API.
+type keepLegacyLiveChatEndpoint struct{}
+
+func (keepLegacyLiveChatEndpoint) Description(context.Context) string {
+	return "Keeps " + client.LegacyLiveChatEndpoint + " in state when endpoint is not set."
+}
+
+func (m keepLegacyLiveChatEndpoint) MarkdownDescription(ctx context.Context) string {
+	return m.Description(ctx)
+}
+
+func (keepLegacyLiveChatEndpoint) PlanModifyString(_ context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	if req.ConfigValue.IsNull() && strings.TrimRight(req.StateValue.ValueString(), "/") == client.LegacyLiveChatEndpoint {
+		resp.PlanValue = req.StateValue
+	}
 }

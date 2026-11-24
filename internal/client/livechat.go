@@ -13,8 +13,13 @@ import (
 	"time"
 )
 
-// DefaultLiveChatEndpoint is Hibira Live Chat, whose REST API is at /v1.
-const DefaultLiveChatEndpoint = "https://chat.hibira.io"
+// DefaultLiveChatEndpoint is Hibira Live Chat's REST API on api.hibira.io,
+// at /v1 under it.
+const DefaultLiveChatEndpoint = "https://api.hibira.io/live-chat"
+
+// LegacyLiveChatEndpoint is Live Chat's own host, the default before 0.9.0.
+// Its REST API keeps answering, so state that holds it stays as it is.
+const LegacyLiveChatEndpoint = "https://chat.hibira.io"
 
 // LiveChat calls the Hibira Live Chat REST API with a workspace API key
 // (lck_<workspace>.<secret>, admin scope), or with the provider's Hibira

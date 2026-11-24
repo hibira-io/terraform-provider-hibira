@@ -1,3 +1,7 @@
+## 0.9.0
+
+- Hibira Live Chat's default address is now https://api.hibira.io/live-chat (its REST API on api.hibira.io, pusher-server#958). `endpoint` and `livechat_endpoint` accept a path. A `hibira_livechat_workspace` set up with the old default (https://chat.hibira.io) keeps it and is not replaced; that address keeps working.
+
 ## 0.8.0
 
 - Needs pusher-server v0.2.166 or later for the resources below: API tokens with the delete scope, and Live Chat settings with an API token on every plan (a feature the plan doesn't include is refused with a message naming the plan).
