@@ -54,4 +54,4 @@ resource "hibira_webhook" "presence" {
 
 - `api_token` (String, Sensitive) A Hibira API token (`hkb_pat_...`) with read and write access, made on the Hibira portal's API tokens page. Can also be set with the `HIBIRA_API_TOKEN` environment variable.
 - `endpoint` (String) The Hibira site URL. Defaults to `https://hibira.io`, or the `HIBIRA_ENDPOINT` environment variable.
-- `livechat_endpoint` (String) Hibira Live Chat's address, for the `hibira_livechat_*` resources other than `hibira_livechat_workspace`. Defaults to `https://chat.hibira.io`, or the `HIBIRA_LIVECHAT_ENDPOINT` environment variable.
+- `livechat_endpoint` (String) Hibira Live Chat's address, for the `hibira_livechat_*` resources other than `hibira_livechat_workspace`. Defaults to `https://api.hibira.io/live-chat`, or the `HIBIRA_LIVECHAT_ENDPOINT` environment variable.
